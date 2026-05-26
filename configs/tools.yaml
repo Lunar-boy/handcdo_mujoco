@@ -1,0 +1,12 @@
+hammer:
+  mass: 0.55
+  force_limit: 18.0
+  torque_limit: 0.55
+spoon:
+  mass: 0.08
+  force_limit: 8.0
+  torque_limit: 0.20
+knife:
+  mass: 0.14
+  force_limit: 10.0
+  torque_limit: 0.25
