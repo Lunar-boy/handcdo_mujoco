@@ -13,7 +13,8 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 
-python3 scripts/run_optuna_round.py \
+
+./.venv/bin/python scripts/run_optuna_round.py \
   --study-name handcdo-mujoco \
   --storage sqlite:///outputs/handcdo_optuna.db \
   --n-trials 20 \

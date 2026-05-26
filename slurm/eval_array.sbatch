@@ -14,7 +14,9 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 
-python3 scripts/evaluate_design_batch.py \
+
+
+./.venv/bin/python scripts/evaluate_design_batch.py \
   --task-id "${SLURM_ARRAY_TASK_ID}" \
   --designs-per-task 5 \
   --design-dir outputs/designs \
