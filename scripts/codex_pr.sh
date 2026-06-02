@@ -43,6 +43,13 @@ mkdir -p "$RUN_DIR"
 
 echo "Running Codex on branch: $BRANCH"
 
+# Pre-create directories that Codex may need.
+# Some Codex file-write paths do not create intermediate directories automatically.
+mkdir -p handcdo/backends
+mkdir -p handcdo/evaluation
+mkdir -p docs
+mkdir -p tests
+
 CODEX_SUMMARY="$RUN_DIR/codex-summary.md"
 CODEX_LOG="$RUN_DIR/codex-events.jsonl"
 
