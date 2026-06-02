@@ -49,9 +49,8 @@ CODEX_LOG="$RUN_DIR/codex-events.jsonl"
 # Codex edits files, but does not push or create the PR.
 # -a never is appropriate here because the script itself controls the final commit/push/PR.
 # Keep sandbox at workspace-write, not danger-full-access.
-codex exec \
+codex --ask-for-approval never exec \
   --sandbox workspace-write \
-  --ask-for-approval never \
   --json \
   "$(cat "$TASK_FILE")" \
   > "$CODEX_LOG"
