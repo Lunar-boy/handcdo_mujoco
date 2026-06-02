@@ -11,3 +11,21 @@ outputs/*
 *.db
 *.sqlite
 *.sqlite3
+
+# Ignore Codex local files by default
+.codex/*
+
+# Keep reusable Codex prompt templates
+!.codex/pr-prompts/
+!.codex/pr-prompts/*.md
+
+# Still ignore Codex runtime outputs and local secrets
+.codex/pr-runs/
+.codex/logs/
+.codex/tmp/
+.codex/*.jsonl
+.codex/*.log
+.codex/config.toml
+.codex/auth.json
+.codex/secrets.*
+.codex/*.local.*
