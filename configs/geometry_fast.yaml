@@ -1,0 +1,9 @@
+geometry:
+  finger:
+    mode: capsule
+    fingertip_pad_enabled: false
+  palm:
+    mode: box_pads
+    pad_resolution: 2
+  tool:
+    mode: primitive

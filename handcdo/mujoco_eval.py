@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from .design_space import HandDesign
+from .geometry_config import GeometryConfig
 from .grasp_sampling import GraspParams
 from .hand_model import build_hand_model
 from .mjcf_generator import build_mjcf_xml
@@ -148,13 +149,15 @@ def evaluate_grasp(
     tool_name: str,
     grasp: GraspParams,
     config: EvaluationConfig | None = None,
+    geometry_config: GeometryConfig | None = None,
 ) -> GraspEvaluation:
     config = config or EvaluationConfig()
+    geometry_config = geometry_config or GeometryConfig()
     tool = get_tool(tool_name)
     try:
         import mujoco
 
-        xml = build_mjcf_xml(build_hand_model(design), tool=tool)
+        xml = build_mjcf_xml(build_hand_model(design), tool=tool, geometry_config=geometry_config)
         model = _load_model(xml)
         data = mujoco.MjData(model)
         _set_tool_pose(model, data, tool, grasp)
