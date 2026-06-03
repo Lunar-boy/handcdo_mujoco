@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .design_space import DesignSpace, HandDesign
+from .geometry_config import GeometryConfig
 from .mujoco_eval import EvaluationConfig
 from .optimize_hand import evaluate_design
 from .utils import ensure_dir, read_yaml, setup_logging, write_json
@@ -42,6 +43,7 @@ def evaluate_task(
     ensure_dir(results_dir)
     config_data = read_yaml(config_path)
     eval_config = EvaluationConfig.from_dict(config_data)
+    geometry_config = GeometryConfig.from_dict(config_data)
     n_grasp_trials = int(config_data.get("grasp", {}).get("n_trials", 4))
     design_files = sorted(design_dir.glob("*/design.json"))
     start = task_id * designs_per_task
@@ -55,8 +57,10 @@ def evaluate_task(
                 tools=tools,
                 n_grasp_trials=n_grasp_trials,
                 output_dir=output_root,
+                result_dir=results_dir,
                 seed=seed + task_id * 10000 + offset,
                 config=eval_config,
+                geometry_config=geometry_config,
             )
         except Exception as exc:
             LOGGER.exception("Failed design file %s", design_file)

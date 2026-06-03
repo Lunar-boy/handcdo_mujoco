@@ -1,0 +1,14 @@
+geometry:
+  finger:
+    mode: capsule_tip_pad
+    fingertip_pad_enabled: true
+    fingertip_pad_shape: box
+    fingertip_pad_thickness: 0.004
+    fingertip_pad_friction: [1.4, 0.03, 0.003]
+  palm:
+    mode: pad_grid
+    pad_resolution: 4
+    max_num_pad_geoms: 16
+  tool:
+    mode: hybrid
+    collision_margin: 0.001

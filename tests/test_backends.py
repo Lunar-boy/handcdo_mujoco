@@ -4,9 +4,11 @@ import pytest
 
 from handcdo.backends import get_backend
 from handcdo.design_space import DesignSpace
+from handcdo.geometry_config import GeometryConfig
 from handcdo.mujoco_eval import GraspEvaluation
 from handcdo.optimize_grasp import optimize_grasp_for_tool
 from handcdo.optimize_hand import build_parser, evaluate_design
+from handcdo.slurm_batch import evaluate_task
 
 
 class FakeBackend:
@@ -15,8 +17,8 @@ class FakeBackend:
     def __init__(self) -> None:
         self.calls = []
 
-    def evaluate_grasp(self, design, tool_name, grasp, config):
-        self.calls.append((design, tool_name, grasp, config))
+    def evaluate_grasp(self, design, tool_name, grasp, config, geometry_config=None):
+        self.calls.append((design, tool_name, grasp, config, geometry_config))
         return GraspEvaluation(
             design_id=design.design_id,
             tool=tool_name,
@@ -88,6 +90,66 @@ def test_evaluate_design_reuses_fake_backend_for_tools(tmp_path):
     assert payload["hand_score"] == 1.5
     assert [result["tool"] for result in payload["tool_results"]] == ["hammer", "knife"]
     assert payload["failed"] is False
+
+
+def test_evaluate_design_passes_geometry_config_to_backend(tmp_path):
+    design = DesignSpace().sample(seed=3)
+    backend = FakeBackend()
+    geometry_config = GeometryConfig.from_dict({"geometry": {"palm": {"pad_resolution": 3}}})
+
+    evaluate_design(
+        design,
+        tools=["hammer"],
+        n_grasp_trials=1,
+        output_dir=tmp_path,
+        seed=0,
+        backend=backend,
+        geometry_config=geometry_config,
+    )
+
+    assert backend.calls[0][4] == geometry_config
+
+
+def test_evaluate_task_writes_success_to_requested_results_dir(tmp_path, monkeypatch):
+    design = DesignSpace().sample(seed=4)
+    design_dir = tmp_path / "design_inputs"
+    result_dir = tmp_path / "custom_results"
+    config_path = tmp_path / "config.yaml"
+    input_design_dir = design_dir / design.design_id
+    input_design_dir.mkdir(parents=True)
+    design.to_json(input_design_dir / "design.json")
+    config_path.write_text(
+        """
+geometry:
+  finger:
+    mode: capsule
+  palm:
+    mode: box_pads
+  tool:
+    mode: primitive
+grasp:
+  n_trials: 1
+""",
+        encoding="utf-8",
+    )
+    backend = FakeBackend()
+    monkeypatch.setattr("handcdo.optimize_hand.get_backend", lambda name: backend)
+
+    payloads = evaluate_task(
+        task_id=0,
+        designs_per_task=1,
+        design_dir=design_dir,
+        results_dir=result_dir,
+        config_path=config_path,
+        tools=["hammer"],
+        seed=0,
+    )
+
+    assert len(payloads) == 1
+    assert (result_dir / f"{design.design_id}.json").is_file()
+    assert not (tmp_path / "results" / f"{design.design_id}.json").exists()
+    assert (tmp_path / "designs" / design.design_id / "model.xml").is_file()
+    assert backend.calls[0][4] == GeometryConfig.from_dict({"geometry": {"finger": {"mode": "capsule"}}})
 
 
 def test_get_backend_normalizes_whitespace_and_case():

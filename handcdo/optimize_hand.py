@@ -8,6 +8,7 @@ import numpy as np
 
 from .backends import SimulatorBackend, get_backend
 from .design_space import DesignSpace, HandDesign
+from .geometry_config import GeometryConfig
 from .mjcf_generator import write_design_model
 from .mujoco_eval import EvaluationConfig
 from .optimize_grasp import optimize_grasp_for_tool
@@ -20,16 +21,18 @@ def evaluate_design(
     tools: list[str],
     n_grasp_trials: int,
     output_dir: str | Path,
+    result_dir: str | Path | None = None,
     seed: int = 0,
     config: EvaluationConfig | None = None,
+    geometry_config: GeometryConfig | None = None,
     backend_name: str = "mujoco_cpu",
     backend: SimulatorBackend | None = None,
 ) -> dict[str, Any]:
     backend = backend or get_backend(backend_name)
-    result_dir = ensure_dir(Path(output_dir) / "results")
+    result_dir = ensure_dir(result_dir if result_dir is not None else Path(output_dir) / "results")
     design_dir = ensure_dir(Path(output_dir) / "designs" / design.design_id)
     design.to_json(design_dir / "design.json")
-    write_design_model(design, output_dir)
+    write_design_model(design, output_dir, geometry_config=geometry_config)
     tool_results = []
     for i, tool in enumerate(tools):
         tool_results.append(
@@ -39,6 +42,7 @@ def evaluate_design(
                 n_trials=n_grasp_trials,
                 seed=seed + 1009 * (i + 1),
                 config=config,
+                geometry_config=geometry_config,
                 backend=backend,
             )
         )
@@ -61,6 +65,7 @@ def run_optuna(args: argparse.Namespace) -> None:
     output_dir = ensure_dir(args.output_dir)
     config_data = read_yaml(args.config) if args.config else {}
     eval_config = EvaluationConfig.from_dict(config_data)
+    geometry_config = GeometryConfig.from_dict(config_data)
     space = DesignSpace.from_yaml(args.search_space) if args.search_space else DesignSpace()
     tools = [t.strip() for t in args.tools.split(",") if t.strip()]
     optuna.logging.set_verbosity(optuna.logging.INFO)
@@ -81,6 +86,7 @@ def run_optuna(args: argparse.Namespace) -> None:
             output_dir=output_dir,
             seed=args.seed + trial.number * 100,
             config=eval_config,
+            geometry_config=geometry_config,
             backend_name=args.backend,
         )
         trial.set_user_attr("design_id", design.design_id)

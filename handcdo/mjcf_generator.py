@@ -5,6 +5,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from .design_space import HandDesign
+from .geometry_config import FingerContactConfig, GeometryConfig, PalmContactConfig, ToolContactConfig
 from .hand_model import DigitSpec, HandModel, build_hand_model
 from .tools import ToolSpec, get_tool
 from .utils import ensure_dir
@@ -27,7 +28,19 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
         elem.tail = i
 
 
-def _add_digit(parent: ET.Element, digit: DigitSpec) -> None:
+def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
+    if geometry_config.finger.mode != "capsule":
+        raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
+    if geometry_config.finger.fingertip_pad_enabled:
+        raise NotImplementedError("finger fingertip pads are not implemented yet")
+    if geometry_config.palm.mode != "box_pads":
+        raise NotImplementedError(f"palm contact mode {geometry_config.palm.mode!r} is not implemented yet")
+    if geometry_config.tool.mode != "primitive":
+        raise NotImplementedError(f"tool contact mode {geometry_config.tool.mode!r} is not implemented yet")
+
+
+def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContactConfig | None = None) -> None:
+    _ = finger_config
     base = ET.SubElement(
         parent,
         "body",
@@ -63,7 +76,15 @@ def _add_digit(parent: ET.Element, digit: DigitSpec) -> None:
         current = ET.SubElement(current, "body", name=f"{link.name}_tip", pos=_vec((link.length, 0.0, 0.0)))
 
 
-def _add_tool(parent: ET.Element, tool: ToolSpec, fixed: bool = False) -> None:
+def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig | None = None) -> None:
+    _ = palm_config
+    ET.SubElement(parent, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
+    for pad in hand.palm_pads:
+        ET.SubElement(parent, "geom", name=pad.name, type="box", pos=_vec(pad.pos), size=_vec(pad.size), density="500", friction="1.4 0.02 0.002")
+
+
+def _add_tool(parent: ET.Element, tool: ToolSpec, fixed: bool = False, tool_config: ToolContactConfig | None = None) -> None:
+    _ = tool_config
     body = ET.SubElement(parent, "body", name="tool", pos=_vec(tool.reference_pos), quat=_vec(tool.reference_quat))
     if not fixed:
         ET.SubElement(body, "freejoint", name="tool_free")
@@ -81,7 +102,14 @@ def _add_tool(parent: ET.Element, tool: ToolSpec, fixed: bool = False) -> None:
         raise ValueError(f"Unsupported tool {tool.name}")
 
 
-def build_mjcf_xml(hand: HandModel, tool: ToolSpec | None = None, fixed_tool: bool = False) -> str:
+def build_mjcf_xml(
+    hand: HandModel,
+    tool: ToolSpec | None = None,
+    fixed_tool: bool = False,
+    geometry_config: GeometryConfig | None = None,
+) -> str:
+    geometry_config = geometry_config or GeometryConfig()
+    _ensure_supported_geometry_config(geometry_config)
     root = ET.Element("mujoco", model=f"handcdo_{hand.design.design_id}")
     ET.SubElement(root, "compiler", angle="degree", coordinate="local", inertiafromgeom="true")
     ET.SubElement(root, "option", timestep="0.002", gravity="0 0 -9.81", integrator="implicitfast", cone="elliptic")
@@ -93,13 +121,11 @@ def build_mjcf_xml(hand: HandModel, tool: ToolSpec | None = None, fixed_tool: bo
     ET.SubElement(world, "light", name="top", pos="0 0 1.0")
     ET.SubElement(world, "geom", name="floor", type="plane", size="0.6 0.6 0.02", pos="0 0 -0.04", friction="1 0.01 0.001")
     palm = ET.SubElement(world, "body", name="palm", pos="0 0 0")
-    ET.SubElement(palm, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
-    for pad in hand.palm_pads:
-        ET.SubElement(palm, "geom", name=pad.name, type="box", pos=_vec(pad.pos), size=_vec(pad.size), density="500", friction="1.4 0.02 0.002")
+    _add_palm_geoms(palm, hand, palm_config=geometry_config.palm)
     for digit in hand.digits:
-        _add_digit(palm, digit)
+        _add_digit(palm, digit, finger_config=geometry_config.finger)
     if tool is not None:
-        _add_tool(world, tool, fixed=fixed_tool)
+        _add_tool(world, tool, fixed=fixed_tool, tool_config=geometry_config.tool)
     actuators = ET.SubElement(root, "actuator")
     for joint in hand.joint_names:
         ET.SubElement(actuators, "position", name=f"{joint}_pos", joint=joint, kp="6.0", ctrlrange="-0.3 1.35", ctrllimited="true")
@@ -112,12 +138,13 @@ def write_design_model(
     output_dir: str | Path,
     tool_name: str | None = None,
     fixed_tool: bool = False,
+    geometry_config: GeometryConfig | None = None,
 ) -> Path:
     hand = build_hand_model(design)
     tool = get_tool(tool_name) if tool_name else None
     design_dir = ensure_dir(Path(output_dir) / "designs" / design.design_id)
     design.to_json(design_dir / "design.json")
-    xml = build_mjcf_xml(hand, tool=tool, fixed_tool=fixed_tool)
+    xml = build_mjcf_xml(hand, tool=tool, fixed_tool=fixed_tool, geometry_config=geometry_config)
     model_path = design_dir / ("model.xml" if tool is None else f"model_{tool.name}.xml")
     model_path.write_text(xml, encoding="utf-8")
     return model_path
