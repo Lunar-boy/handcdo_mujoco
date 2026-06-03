@@ -77,10 +77,11 @@ python3 scripts/run_optuna_round.py \
   --output-dir outputs \
   --seed 0 \
   --tools hammer,spoon,knife \
-  --backend mujoco
+  --backend mujoco_cpu
 ```
 
 The outer objective maximizes the average best grasp stability score across hammer, spoon, and knife. The inner grasp optimizer uses Optuna TPE when available and falls back to random search if necessary.
+`mujoco` remains accepted as a legacy alias for the same CPU MuJoCo backend.
 
 ## SHAP Analysis
 

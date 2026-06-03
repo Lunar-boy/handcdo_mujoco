@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from .backends import SimulatorBackend, get_backend
 from .design_space import DesignSpace, HandDesign
 from .mjcf_generator import write_design_model
 from .mujoco_eval import EvaluationConfig
@@ -21,7 +22,10 @@ def evaluate_design(
     output_dir: str | Path,
     seed: int = 0,
     config: EvaluationConfig | None = None,
+    backend_name: str = "mujoco_cpu",
+    backend: SimulatorBackend | None = None,
 ) -> dict[str, Any]:
+    backend = backend or get_backend(backend_name)
     result_dir = ensure_dir(Path(output_dir) / "results")
     design_dir = ensure_dir(Path(output_dir) / "designs" / design.design_id)
     design.to_json(design_dir / "design.json")
@@ -35,6 +39,7 @@ def evaluate_design(
                 n_trials=n_grasp_trials,
                 seed=seed + 1009 * (i + 1),
                 config=config,
+                backend=backend,
             )
         )
     score = float(np.mean([r["best_score"] for r in tool_results])) if tool_results else 0.0
@@ -76,6 +81,7 @@ def run_optuna(args: argparse.Namespace) -> None:
             output_dir=output_dir,
             seed=args.seed + trial.number * 100,
             config=eval_config,
+            backend_name=args.backend,
         )
         trial.set_user_attr("design_id", design.design_id)
         return float(payload["hand_score"])
@@ -93,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default="outputs")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--tools", default="hammer,spoon,knife")
-    parser.add_argument("--backend", default="mujoco", choices=["mujoco"])
+    parser.add_argument("--backend", default="mujoco", choices=["mujoco", "mujoco_cpu"])
     parser.add_argument("--config", default="configs/default_eval.yaml")
     parser.add_argument("--search-space", default="configs/search_space.yaml")
     return parser
