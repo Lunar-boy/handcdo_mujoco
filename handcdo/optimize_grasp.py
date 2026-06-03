@@ -5,9 +5,10 @@ from typing import Any
 
 import numpy as np
 
+from .backends import SimulatorBackend, get_backend
 from .design_space import HandDesign
 from .grasp_sampling import optuna_suggest_grasp, sample_random_grasp
-from .mujoco_eval import EvaluationConfig, GraspEvaluation, evaluate_grasp
+from .mujoco_eval import EvaluationConfig, GraspEvaluation
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,7 +20,9 @@ def optimize_grasp_for_tool(
     seed: int = 0,
     config: EvaluationConfig | None = None,
     sampler: str = "tpe",
+    backend: SimulatorBackend | None = None,
 ) -> dict[str, Any]:
+    backend = backend or get_backend("mujoco_cpu")
     best: GraspEvaluation | None = None
     trials: list[dict[str, Any]] = []
     if sampler == "tpe":
@@ -32,7 +35,7 @@ def optimize_grasp_for_tool(
             def objective(trial: Any) -> float:
                 nonlocal best
                 grasp = optuna_suggest_grasp(trial)
-                result = evaluate_grasp(design, tool_name, grasp, config)
+                result = backend.evaluate_grasp(design, tool_name, grasp, config)
                 trials.append(result.to_dict())
                 if best is None or result.score > best.score:
                     best = result
@@ -47,7 +50,7 @@ def optimize_grasp_for_tool(
         rng = np.random.default_rng(seed)
         for _ in range(n_trials):
             grasp = sample_random_grasp(rng=rng)
-            result = evaluate_grasp(design, tool_name, grasp, config)
+            result = backend.evaluate_grasp(design, tool_name, grasp, config)
             trials.append(result.to_dict())
             if best is None or result.score > best.score:
                 best = result
