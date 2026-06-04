@@ -27,6 +27,7 @@ def evaluate_design(
     geometry_config: GeometryConfig | None = None,
     backend_name: str = "mujoco_cpu",
     backend: SimulatorBackend | None = None,
+    sampler: str = "tpe",
 ) -> dict[str, Any]:
     backend = backend or get_backend(backend_name)
     result_dir = ensure_dir(result_dir if result_dir is not None else Path(output_dir) / "results")
@@ -44,6 +45,7 @@ def evaluate_design(
                 config=config,
                 geometry_config=geometry_config,
                 backend=backend,
+                sampler=sampler,
             )
         )
     score = float(np.mean([r["best_score"] for r in tool_results])) if tool_results else 0.0

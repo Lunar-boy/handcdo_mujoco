@@ -83,6 +83,26 @@ python3 scripts/run_optuna_round.py \
 The outer objective maximizes the average best grasp stability score across hammer, spoon, and knife. The inner grasp optimizer uses Optuna TPE when available and falls back to random search if necessary.
 `mujoco` remains accepted as a legacy alias for the same CPU MuJoCo backend.
 
+## Baseline Benchmark
+
+Run this before changing contact geometry to freeze the current MuJoCo CPU baseline. Future geometry modes can be compared against this baseline with the comparison helper. The generated benchmark outputs under `outputs/` should not be committed.
+
+```bash
+python3 scripts/run_baseline_benchmark.py \
+  --n-designs 2 \
+  --n-grasp-trials 1 \
+  --tools hammer \
+  --seed 0 \
+  --backend mujoco_cpu \
+  --config configs/default_eval.yaml \
+  --output-dir outputs/smoke_baseline
+
+python3 scripts/compare_benchmarks.py \
+  --left outputs/smoke_baseline/results.csv \
+  --right outputs/smoke_baseline/results.csv \
+  --output-dir outputs/smoke_baseline_compare
+```
+
 ## SHAP Analysis
 
 ```bash
