@@ -127,7 +127,7 @@ def test_default_xml_still_loads_with_mujoco_when_available():
 @pytest.mark.parametrize(
     "payload",
     [
-        {"geometry": {"finger": {"mode": "capsule_tip_pad", "fingertip_pad_enabled": True}}},
+        {"geometry": {"finger": {"mode": "local_convex_patches"}}},
         {"geometry": {"palm": {"mode": "pad_grid"}}},
         {"geometry": {"tool": {"mode": "hybrid"}}},
     ],
