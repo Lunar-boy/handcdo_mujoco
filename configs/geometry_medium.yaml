@@ -9,5 +9,6 @@ geometry:
     mode: pad_grid
     pad_resolution: 3
     pad_friction: [1.4, 0.02, 0.002]
+    max_num_pad_geoms: 16
   tool:
     mode: primitive

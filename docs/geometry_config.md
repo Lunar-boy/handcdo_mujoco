@@ -8,4 +8,8 @@ The optional `finger.mode: capsule_tip_pad` geometry keeps every capsule link an
 
 Use `configs/geometry_tip_pad.yaml` for a runnable tip-pad configuration. Other fingertip pad shapes remain reserved by the schema but are not implemented.
 
-This mode is a CPU-friendly MuJoCo primitive approximation for contact experiments. It is not the paper-level Gaussian surface deformation kernel or mesh collider decomposition. Current palm kernels remain approximated as simple local contact pads, and palm pad grids and hybrid tool collision remain future work.
+These modes are CPU-friendly MuJoCo primitive approximations for contact experiments. They are not the paper-level Gaussian surface deformation kernel, mesh deformation, or convex mesh decomposition.
+
+The default `palm.mode: box_pads` geometry keeps the original two local `palm_kernel_pad_*` box pads. The optional `palm.mode: pad_grid` geometry replaces those two local pads with a deterministic, low-resolution grid of primitive box contact pads across the palm's top surface. Higher `pad_resolution` values can better approximate distributed palm contact, but increase contact count and simulation cost. `max_num_pad_geoms` limits the permitted grid size.
+
+Use `configs/geometry_medium.yaml` for a runnable configuration combining fingertip pads and a palm pad grid. Hybrid tool collision remains future work.
