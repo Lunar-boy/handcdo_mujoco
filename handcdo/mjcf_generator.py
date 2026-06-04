@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 from .design_space import HandDesign
 from .geometry_config import FingerContactConfig, GeometryConfig, PalmContactConfig, ToolContactConfig
-from .hand_model import DigitSpec, HandModel, build_hand_model
+from .hand_model import DigitSpec, HandModel, LinkSpec, build_hand_model
 from .tools import ToolSpec, get_tool
 from .utils import ensure_dir
 
@@ -29,18 +29,48 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 
 
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
-    if geometry_config.finger.mode != "capsule":
+    if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
-    if geometry_config.finger.fingertip_pad_enabled:
-        raise NotImplementedError("finger fingertip pads are not implemented yet")
     if geometry_config.palm.mode != "box_pads":
         raise NotImplementedError(f"palm contact mode {geometry_config.palm.mode!r} is not implemented yet")
     if geometry_config.tool.mode != "primitive":
         raise NotImplementedError(f"tool contact mode {geometry_config.tool.mode!r} is not implemented yet")
 
 
+def _add_fingertip_pad_geom(parent: ET.Element, link: LinkSpec, finger_config: FingerContactConfig) -> None:
+    shape = finger_config.fingertip_pad_shape
+    if shape == "box":
+        thickness = finger_config.fingertip_pad_thickness
+        pad_half_x = min(0.008, max(0.003, 0.28 * link.length))
+        pad_half_y = max(0.003, 0.75 * link.radius)
+        pad_half_z = 0.5 * thickness
+        pos = (
+            max(0.0, link.length - pad_half_x),
+            0.0,
+            -(link.radius + pad_half_z * 0.5),
+        )
+        size = (pad_half_x, pad_half_y, pad_half_z)
+    elif shape in {"ellipsoid", "capsule", "convex_mesh"}:
+        raise NotImplementedError(f"fingertip pad shape {shape!r} is not implemented yet")
+    else:
+        raise ValueError(f"Unknown fingertip pad shape {shape!r}")
+
+    ET.SubElement(
+        parent,
+        "geom",
+        name=f"{link.name}_tip_pad",
+        type="box",
+        pos=_vec(pos),
+        size=_vec(size),
+        density="400",
+        friction=_vec(finger_config.fingertip_pad_friction),
+        contype="1",
+        conaffinity="1",
+    )
+
+
 def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContactConfig | None = None) -> None:
-    _ = finger_config
+    finger_config = finger_config or FingerContactConfig()
     base = ET.SubElement(
         parent,
         "body",
@@ -73,6 +103,8 @@ def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContac
             contype="1",
             conaffinity="1",
         )
+        if link.fingertip and finger_config.fingertip_pad_enabled:
+            _add_fingertip_pad_geom(current, link, finger_config)
         current = ET.SubElement(current, "body", name=f"{link.name}_tip", pos=_vec((link.length, 0.0, 0.0)))
 
 
