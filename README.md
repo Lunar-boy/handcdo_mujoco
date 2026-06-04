@@ -6,6 +6,8 @@ This is not an exact reproduction of the original hardware, unpublished hand gen
 
 The evaluation score is an approximation of the paper’s simulation-based wrench stability score. Geometry is deliberately simplified and uses MuJoCo primitives so the workflow can run on CPU HPC nodes. The code is structured so more accurate meshes, real deformation kernels, MJX/JAX, or GPU simulation can be added later.
 
+Tool geometry defaults to the original primitive hammer, spoon, and knife models. Optional `tool.mode: hybrid` configuration can add separate visual and collision meshes from `assets/tools/<tool_name>/`; when assets are missing it logs a warning and falls back to primitives without changing optimization semantics. Collision meshes should be convex or low-complexity for stable MuJoCo contact. This infrastructure does not perform convex decomposition. See [docs/tool_geometry.md](docs/tool_geometry.md).
+
 ## Install
 
 ```bash
@@ -161,4 +163,5 @@ handcdo_mujoco/
 - No GPU-only libraries.
 - No real robot control, fabrication, OptiTrack, or physical validation.
 - Primitive hammer, spoon, and knife models are placeholders for simulation infrastructure tests.
+- Hybrid tool geometry supports optional visual/collision meshes while preserving primitive fallback and the default primitive path.
 - Palm kernels are approximated as configurable local contact pads, with a clean interface for replacing them with real mesh deformation later.

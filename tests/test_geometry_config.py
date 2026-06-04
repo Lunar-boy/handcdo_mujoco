@@ -128,7 +128,7 @@ def test_default_xml_still_loads_with_mujoco_when_available():
     "payload",
     [
         {"geometry": {"finger": {"mode": "local_convex_patches"}}},
-        {"geometry": {"tool": {"mode": "hybrid"}}},
+        {"geometry": {"tool": {"mode": "convex_mesh"}}},
     ],
 )
 def test_valid_future_geometry_modes_raise_not_implemented_during_mjcf_generation(payload):
