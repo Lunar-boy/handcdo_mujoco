@@ -128,7 +128,6 @@ def test_default_xml_still_loads_with_mujoco_when_available():
     "payload",
     [
         {"geometry": {"finger": {"mode": "local_convex_patches"}}},
-        {"geometry": {"palm": {"mode": "pad_grid"}}},
         {"geometry": {"tool": {"mode": "hybrid"}}},
     ],
 )

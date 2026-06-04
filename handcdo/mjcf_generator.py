@@ -31,8 +31,10 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
     if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
-    if geometry_config.palm.mode != "box_pads":
+    if geometry_config.palm.mode == "convex_patches":
         raise NotImplementedError(f"palm contact mode {geometry_config.palm.mode!r} is not implemented yet")
+    if geometry_config.palm.mode not in {"box_pads", "pad_grid"}:
+        raise ValueError(f"Unknown palm contact mode {geometry_config.palm.mode!r}")
     if geometry_config.tool.mode != "primitive":
         raise NotImplementedError(f"tool contact mode {geometry_config.tool.mode!r} is not implemented yet")
 
@@ -108,11 +110,64 @@ def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContac
         current = ET.SubElement(current, "body", name=f"{link.name}_tip", pos=_vec((link.length, 0.0, 0.0)))
 
 
-def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig | None = None) -> None:
+def _add_palm_box_pads(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig) -> None:
     _ = palm_config
-    ET.SubElement(parent, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
     for pad in hand.palm_pads:
         ET.SubElement(parent, "geom", name=pad.name, type="box", pos=_vec(pad.pos), size=_vec(pad.size), density="500", friction="1.4 0.02 0.002")
+
+
+def _add_palm_pad_grid(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig) -> None:
+    resolution = palm_config.pad_resolution
+    if resolution < 2 or resolution * resolution > palm_config.max_num_pad_geoms:
+        raise ValueError(
+            "palm pad_grid requires pad_resolution >= 2 and "
+            "pad_resolution * pad_resolution <= max_num_pad_geoms; "
+            f"got pad_resolution={resolution!r}, max_num_pad_geoms={palm_config.max_num_pad_geoms!r}"
+        )
+
+    palm_half_x, palm_half_y, palm_half_z = hand.palm_size
+    pad_half_z = 0.0025
+    margin_x = min(0.010, 0.15 * palm_half_x)
+    margin_y = min(0.010, 0.15 * palm_half_y)
+    usable_half_x = max(0.001, palm_half_x - margin_x)
+    usable_half_y = max(0.001, palm_half_y - margin_y)
+    cell_half_x = usable_half_x / resolution
+    cell_half_y = usable_half_y / resolution
+    size = (0.85 * cell_half_x, 0.85 * cell_half_y, pad_half_z)
+    z = palm_half_z + pad_half_z
+
+    for row in range(resolution):
+        for col in range(resolution):
+            pos = (
+                -usable_half_x + (2 * col + 1) * cell_half_x,
+                -usable_half_y + (2 * row + 1) * cell_half_y,
+                z,
+            )
+            ET.SubElement(
+                parent,
+                "geom",
+                name=f"palm_grid_pad_r{row}_c{col}",
+                type="box",
+                pos=_vec(pos),
+                size=_vec(size),
+                density="500",
+                friction=_vec(palm_config.pad_friction),
+                contype="1",
+                conaffinity="1",
+            )
+
+
+def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig | None = None) -> None:
+    palm_config = palm_config or PalmContactConfig()
+    ET.SubElement(parent, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
+    if palm_config.mode == "box_pads":
+        _add_palm_box_pads(parent, hand, palm_config)
+    elif palm_config.mode == "pad_grid":
+        _add_palm_pad_grid(parent, hand, palm_config)
+    elif palm_config.mode == "convex_patches":
+        raise NotImplementedError("palm contact mode 'convex_patches' is not implemented yet")
+    else:
+        raise ValueError(f"Unknown palm contact mode {palm_config.mode!r}")
 
 
 def _add_tool(parent: ET.Element, tool: ToolSpec, fixed: bool = False, tool_config: ToolContactConfig | None = None) -> None:
