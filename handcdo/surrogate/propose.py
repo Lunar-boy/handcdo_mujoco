@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from typing import Any
 
 import numpy as np
@@ -21,6 +22,7 @@ def propose_candidates(
     seed: int = 0,
     existing_csv: str | Path | None = None,
     exclude_existing: bool = True,
+    overwrite: bool = False,
 ) -> list[dict[str, Any]]:
     if n_random <= 0:
         raise ValueError("n_random must be > 0")
@@ -40,6 +42,7 @@ def propose_candidates(
     resolved_search_space = search_space if search_space is not None else metadata.get("search_space")
     space = load_design_space(resolved_search_space)
     output_path = ensure_dir(output_dir)
+    _prepare_output_paths(output_path, overwrite=overwrite)
 
     existing_design_ids = _load_existing_design_ids(existing_csv, metadata) if exclude_existing else set()
     candidates = _sample_unique_candidates(space, n_random=n_random, seed=seed, existing_design_ids=existing_design_ids)
@@ -78,10 +81,23 @@ def propose_candidates(
             "n_random": n_random,
             "top_k": top_k,
             "exclude_existing": exclude_existing,
+            "overwrite": overwrite,
             "selected_design_ids": [str(row["design_id"]) for row in selected_records],
         },
     )
     return selected_records
+
+
+def _prepare_output_paths(output_path: Path, overwrite: bool) -> None:
+    proposed_design_dir = output_path / "proposed_designs"
+    for path in (output_path / "proposed_candidates.csv", output_path / "manifest.json"):
+        if path.exists() and not overwrite:
+            raise FileExistsError(f"{path} already exists; pass overwrite=True to replace proposal outputs")
+    if proposed_design_dir.exists() and any(proposed_design_dir.iterdir()):
+        if not overwrite:
+            raise FileExistsError(f"{proposed_design_dir} is non-empty; pass overwrite=True to replace proposed designs")
+        shutil.rmtree(proposed_design_dir)
+    ensure_dir(proposed_design_dir)
 
 
 def _load_model_bundle(model_path: str | Path) -> dict[str, Any]:

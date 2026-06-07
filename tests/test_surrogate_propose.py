@@ -15,6 +15,7 @@ def _training_frame(n_rows: int = 8, constant_target: bool = False) -> pd.DataFr
             {
                 "design_id": design.design_id,
                 "best_available_score": 1.0 if constant_target else float(seed),
+                "hand_score": 1.0 if constant_target else float(seed),
                 "failed": False,
                 **design.to_dict(),
             }
@@ -123,4 +124,76 @@ def test_invalid_top_k_fails_clearly(tmp_path):
             n_random=2,
             top_k=3,
             output_dir=tmp_path / "proposal",
+        )
+
+
+def test_rerunning_proposal_without_overwrite_fails(tmp_path):
+    model_path, _ = _train_model(tmp_path)
+    kwargs = dict(
+        model_path=model_path,
+        search_space="configs/search_space.yaml",
+        n_random=12,
+        top_k=3,
+        output_dir=tmp_path / "proposal",
+        seed=60,
+        exclude_existing=False,
+    )
+    propose_candidates(**kwargs)
+
+    with pytest.raises(FileExistsError, match="proposed_candidates.csv|proposed_designs|manifest.json"):
+        propose_candidates(**kwargs)
+
+
+def test_overwrite_removes_stale_designs_and_writes_exact_top_k(tmp_path):
+    model_path, _ = _train_model(tmp_path)
+    output_dir = tmp_path / "proposal"
+    propose_candidates(
+        model_path=model_path,
+        search_space="configs/search_space.yaml",
+        n_random=12,
+        top_k=4,
+        output_dir=output_dir,
+        seed=70,
+        exclude_existing=False,
+    )
+    stale_dir = output_dir / "proposed_designs" / "stale_design"
+    stale_dir.mkdir(parents=True)
+    stale_json = stale_dir / "design.json"
+    stale_json.write_text("{}", encoding="utf-8")
+
+    propose_candidates(
+        model_path=model_path,
+        search_space="configs/search_space.yaml",
+        n_random=12,
+        top_k=2,
+        output_dir=output_dir,
+        seed=71,
+        exclude_existing=False,
+        overwrite=True,
+    )
+
+    proposal_df = pd.read_csv(output_dir / "proposed_candidates.csv")
+    design_jsons = list((output_dir / "proposed_designs").glob("*/design.json"))
+    manifest = __import__("json").loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert len(proposal_df) == 2
+    assert len(design_jsons) == 2
+    assert not stale_json.exists()
+    assert manifest["overwrite"] is True
+
+
+def test_existing_manifest_and_candidate_csv_are_protected(tmp_path):
+    model_path, _ = _train_model(tmp_path)
+    output_dir = tmp_path / "proposal"
+    output_dir.mkdir()
+    (output_dir / "proposed_candidates.csv").write_text("stale\n", encoding="utf-8")
+    (output_dir / "manifest.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="proposed_candidates.csv"):
+        propose_candidates(
+            model_path=model_path,
+            search_space="configs/search_space.yaml",
+            n_random=12,
+            top_k=2,
+            output_dir=output_dir,
+            exclude_existing=False,
         )

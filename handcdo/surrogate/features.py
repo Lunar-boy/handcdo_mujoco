@@ -23,6 +23,15 @@ FAILED_COLUMN_BY_TARGET = {
     "hand_score_high": "failed_high",
 }
 
+FIDELITY_SCORE_COLUMNS = (
+    ("hand_score_high", "failed_high"),
+    ("hand_score_medium", "failed_medium"),
+    ("hand_score_fast", "failed_fast"),
+    ("hand_score", "failed"),
+)
+
+FAILURE_AWARE_BEST_TARGET = "failure_aware_best_available_score"
+
 
 def load_design_space(search_space: str | Path | None) -> DesignSpace:
     if search_space is None:
@@ -55,22 +64,49 @@ def is_truthy(value: Any) -> bool:
         return False
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "t", "yes", "y"}
+    if isinstance(value, (int, float)):
+        return value != 0
     return bool(value)
+
+
+def has_failure_aware_score_inputs(df: pd.DataFrame) -> bool:
+    return any(score_column in df.columns for score_column, _ in FIDELITY_SCORE_COLUMNS)
+
+
+def has_multifidelity_score_inputs(df: pd.DataFrame) -> bool:
+    return any(column in df.columns for column in ("hand_score_high", "hand_score_medium", "hand_score_fast"))
+
+
+def compute_failure_aware_best_score(df: pd.DataFrame) -> pd.Series:
+    if not has_failure_aware_score_inputs(df):
+        raise ValueError("Cannot compute failure-aware best score: no hand_score* columns are available")
+
+    result = pd.Series(pd.NA, index=df.index, dtype="Float64")
+    unresolved = pd.Series(True, index=df.index)
+    for score_column, failed_column in FIDELITY_SCORE_COLUMNS:
+        if score_column not in df.columns:
+            continue
+        scores = pd.to_numeric(df[score_column], errors="coerce")
+        failed = df[failed_column].map(is_truthy) if failed_column in df.columns else pd.Series(False, index=df.index)
+        valid = unresolved & scores.notna() & ~failed
+        result.loc[valid] = scores.loc[valid]
+        unresolved = unresolved & ~valid
+    return result.astype(float)
 
 
 def valid_training_rows(df: pd.DataFrame, target_column: str) -> pd.DataFrame:
     selected = df.copy()
-    selected[target_column] = pd.to_numeric(selected[target_column], errors="coerce")
-    selected = selected.dropna(subset=[target_column])
+
+    if target_column == "best_available_score":
+        selected[FAILURE_AWARE_BEST_TARGET] = compute_failure_aware_best_score(selected)
+        selected = selected.dropna(subset=[FAILURE_AWARE_BEST_TARGET])
+    else:
+        selected[target_column] = pd.to_numeric(selected[target_column], errors="coerce")
+        selected = selected.dropna(subset=[target_column])
 
     failed_column = FAILED_COLUMN_BY_TARGET.get(target_column)
-    if failed_column and failed_column in selected.columns:
+    if target_column != "best_available_score" and failed_column and failed_column in selected.columns:
         selected = selected[~selected[failed_column].map(is_truthy)]
-    elif target_column == "best_available_score":
-        failed_columns = [column for column in ("failed_high", "failed_medium", "failed_fast", "failed") if column in selected.columns]
-        if failed_columns:
-            failed_all = selected[failed_columns].apply(lambda row: all(is_truthy(value) for value in row), axis=1)
-            selected = selected[~failed_all]
 
     if selected.empty:
         raise ValueError(f"No valid training rows remain for target column {target_column!r}")
