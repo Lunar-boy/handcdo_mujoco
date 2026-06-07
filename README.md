@@ -1,10 +1,10 @@
 # handcdo_mujoco
 
-`handcdo_mujoco` is a CPU-only MuJoCo reproduction of the optimization infrastructure from “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
+`handcdo_mujoco` is a MuJoCo reproduction of the optimization infrastructure from “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
 
-This is not an exact reproduction of the original hardware, unpublished hand generator, Isaac Sim pipeline, UR5e setup, OptiTrack evaluation, or physical fabrication workflow. Those parts are intentionally out of scope. The goal here is a robust research codebase for parametric hand design sampling, primitive MJCF generation, MuJoCo grasp/wrench evaluation, TPE optimization, Slurm array execution, result collection, and Random Forest plus SHAP parameter analysis.
+This is not an exact reproduction of the original hardware, unpublished hand generator, Isaac Sim pipeline, OptiTrack evaluation, or physical fabrication workflow. Those parts are intentionally out of scope. The goal here is a robust research codebase for parametric hand design sampling, primitive MJCF generation, MuJoCo grasp/wrench evaluation, TPE optimization, Slurm array execution, result collection, and Random Forest plus SHAP parameter analysis.
 
-The evaluation score is an approximation of the paper’s simulation-based wrench stability score. Geometry is deliberately simplified and uses MuJoCo primitives so the workflow can run on CPU HPC nodes. The code is structured so more accurate meshes, real deformation kernels, MJX/JAX, or GPU simulation can be added later.
+The evaluation score is an approximation of the paper’s simulation-based wrench stability score. Geometry is deliberately simplified and uses MuJoCo primitives so the workflow can run on CPU HPC nodes. The code is structured so more accurate meshes, real deformation kernels, Mujoco Wrap or GPU simulation can be added later.
 
 Tool geometry defaults to the original primitive hammer, spoon, and knife models. Optional `tool.mode: hybrid` configuration can add separate visual and collision meshes from `assets/tools/<tool_name>/`; when assets are missing it logs a warning and falls back to primitives without changing optimization semantics. Collision meshes should be convex or low-complexity for stable MuJoCo contact. This infrastructure does not perform convex decomposition. See [docs/tool_geometry.md](docs/tool_geometry.md).
 
