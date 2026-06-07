@@ -136,6 +136,176 @@ outputs/designs/<design_id>/design.json
 outputs/designs/<design_id>/model.xml
 ```
 
+## Multi-fidelity workflow
+
+The repository supports a deterministic three-stage multi-fidelity evaluation workflow. The goal is to cheaply screen many candidate hands at low fidelity, re-rank the best candidates at medium fidelity, and compute final scores for a small set of high-quality designs at high fidelity.
+
+The three fidelity levels are:
+
+- **Fast**: low simulation budget, primitive geometry, and a small grasp-search budget. Use this for broad screening.
+- **Medium**: higher simulation budget, fingertip pads, palm pad grid, and medium grasp-search budget. Use this for re-ranking.
+- **High**: highest simulation budget, fingertip pads, denser palm pad grid, and optional hybrid tool geometry. Use this for final ranking.
+
+Final conclusions should be based on high-fidelity scores whenever available. The merged CSV keeps separate score columns for each fidelity level so ranking drift between fast, medium, and high evaluation remains visible.
+
+### 1. Generate candidate designs
+
+```bash
+python3 scripts/generate_designs.py \
+  --n-designs 500 \
+  --output-dir outputs/designs \
+  --seed 10
+```
+
+This writes one directory per design under:
+
+```text
+outputs/designs/<design_id>/
+```
+
+Each design directory contains its generated design JSON and, when requested by the evaluation config, the corresponding MJCF model.
+
+### 2. Run fast evaluation
+
+```bash
+python3 scripts/evaluate_design_batch.py \
+  --task-id 0 \
+  --designs-per-task 500 \
+  --design-dir outputs/designs \
+  --results-dir outputs/fast/results \
+  --config configs/eval_fast.yaml
+```
+
+Collect the fast-fidelity result JSON files into a CSV:
+
+```bash
+python3 scripts/collect_results.py \
+  --results-dir outputs/fast/results \
+  --output-csv outputs/fast/results.csv
+```
+
+### 3. Select top candidates for medium fidelity
+
+```bash
+python3 scripts/select_top_designs.py \
+  --input-csv outputs/fast/results.csv \
+  --top-k 100 \
+  --output-design-ids outputs/medium/design_ids.txt
+```
+
+By default, failed rows and rows with invalid scores are ignored. Ties are broken deterministically by `design_id`.
+
+### 4. Run medium re-evaluation
+
+```bash
+python3 scripts/reevaluate_designs.py \
+  --design-dir outputs/designs \
+  --design-ids outputs/medium/design_ids.txt \
+  --results-dir outputs/medium/results \
+  --output-dir outputs/medium \
+  --config configs/eval_medium.yaml \
+  --fidelity medium \
+  --tools hammer,spoon,knife \
+  --backend mujoco_cpu \
+  --seed 1000
+```
+
+Collect medium-fidelity results:
+
+```bash
+python3 scripts/collect_results.py \
+  --results-dir outputs/medium/results \
+  --output-csv outputs/medium/results.csv
+```
+
+### 5. Select top candidates for high fidelity
+
+```bash
+python3 scripts/select_top_designs.py \
+  --input-csv outputs/medium/results.csv \
+  --top-k 20 \
+  --output-design-ids outputs/high/design_ids.txt
+```
+
+### 6. Run high re-evaluation
+
+```bash
+python3 scripts/reevaluate_designs.py \
+  --design-dir outputs/designs \
+  --design-ids outputs/high/design_ids.txt \
+  --results-dir outputs/high/results \
+  --output-dir outputs/high \
+  --config configs/eval_high.yaml \
+  --fidelity high \
+  --tools hammer,spoon,knife \
+  --backend mujoco_cpu \
+  --seed 2000
+```
+
+Collect high-fidelity results:
+
+```bash
+python3 scripts/collect_results.py \
+  --results-dir outputs/high/results \
+  --output-csv outputs/high/results.csv
+```
+
+### 7. Merge fidelity levels
+
+```bash
+python3 scripts/merge_multifidelity_results.py \
+  --fast-csv outputs/fast/results.csv \
+  --medium-csv outputs/medium/results.csv \
+  --high-csv outputs/high/results.csv \
+  --output-csv outputs/multifidelity_results.csv
+```
+
+The merged CSV contains separate score columns:
+
+```text
+hand_score_fast
+hand_score_medium
+hand_score_high
+best_available_score
+```
+
+`best_available_score` uses the highest available fidelity in this order:
+
+```text
+high > medium > fast
+```
+
+The merged file also preserves per-fidelity metadata where available, including:
+
+```text
+fidelity
+backend
+config_path
+n_grasp_trials
+sampler
+seed
+```
+
+### Custom fidelity inputs
+
+The merge script also supports custom fidelity names:
+
+```bash
+python3 scripts/merge_multifidelity_results.py \
+  --input fast=outputs/fast/results.csv \
+  --input medium=outputs/medium/results.csv \
+  --input high=outputs/high/results.csv \
+  --output-csv outputs/multifidelity_results.csv
+```
+
+### Notes
+
+- Fast fidelity is intended only for broad screening.
+- Medium fidelity is intended for re-ranking.
+- High fidelity should be used for final reporting whenever available.
+- Do not compare final hand quality using mixed-fidelity scores unless the fidelity level is explicitly stated.
+- Generated output directories such as `outputs/fast`, `outputs/medium`, `outputs/high`, and `outputs/multifidelity_results.csv` should not be committed.
+
 ## Tests
 
 ```bash
