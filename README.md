@@ -123,6 +123,36 @@ Outputs include:
 
 If SHAP cannot import or fails on a given environment, the script writes `shap_unavailable.txt` and still saves the Random Forest importance and convergence plot.
 
+## Surrogate candidate proposal
+
+After collecting enough random, Optuna, or multi-fidelity MuJoCo results, a lightweight sklearn surrogate can be used as a cheap proposal filter. The surrogate predicts scores from design parameters only, ranks newly sampled candidates, and writes the predicted top candidates as normal design JSON files. These predictions are not physically validated scores; proposed candidates must still be evaluated with MuJoCo, and final reporting should use high-fidelity MuJoCo scores whenever available.
+
+```bash
+python3 scripts/propose_surrogate_candidates.py \
+  --results-csv outputs/multifidelity_results.csv \
+  --search-space configs/search_space.yaml \
+  --target best_available_score \
+  --model-type random_forest \
+  --n-random 10000 \
+  --top-k 200 \
+  --output-dir outputs/surrogate_proposals \
+  --seed 0 \
+  --exclude-existing
+```
+
+The proposed design directory can be passed directly to the existing evaluator:
+
+```bash
+python3 scripts/evaluate_design_batch.py \
+  --task-id 0 \
+  --designs-per-task 10 \
+  --design-dir outputs/surrogate_proposals/proposed_designs \
+  --results-dir outputs/surrogate_proposals/fast_results \
+  --config configs/eval_fast.yaml \
+  --tools hammer,spoon,knife \
+  --seed 100
+```
+
 ## Inspect A Best Design
 
 ```bash
