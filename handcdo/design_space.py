@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any
@@ -102,7 +102,7 @@ class DesignSpace:
 
     def sample(self, seed: int | None = None, rng: np.random.Generator | None = None) -> "HandDesign":
         rng = rng or np.random.default_rng(seed)
-        return HandDesign({spec.name: spec.sample(rng) for spec in self.specs})
+        return HandDesign({spec.name: spec.sample(rng) for spec in self.specs}, space=self)
 
     def validate(self, params: dict[str, Any]) -> dict[str, Any]:
         missing = [s.name for s in self.specs if s.name not in params]
@@ -121,15 +121,17 @@ class DesignSpace:
             else:
                 lo, hi = spec.bounds or (0.0, 0.0)
                 values[spec.name] = trial.suggest_float(spec.name, float(lo), float(hi))
-        return HandDesign(values)
+        return HandDesign(values, space=self)
 
 
 @dataclass(frozen=True)
 class HandDesign:
     params: dict[str, Any]
+    space: DesignSpace | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "params", DesignSpace().validate(dict(self.params)))
+        space = self.space or DesignSpace()
+        object.__setattr__(self, "params", space.validate(dict(self.params)))
 
     @property
     def design_id(self) -> str:
@@ -142,9 +144,9 @@ class HandDesign:
         write_json(path, {"design_id": self.design_id, "parameters": self.to_dict()})
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "HandDesign":
-        return cls(payload.get("parameters", payload))
+    def from_dict(cls, payload: dict[str, Any], space: DesignSpace | None = None) -> "HandDesign":
+        return cls(payload.get("parameters", payload), space=space)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "HandDesign":
-        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+    def from_json(cls, path: str | Path, space: DesignSpace | None = None) -> "HandDesign":
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")), space=space)
