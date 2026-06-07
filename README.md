@@ -105,6 +105,49 @@ python3 scripts/compare_benchmarks.py \
   --output-dir outputs/smoke_baseline_compare
 ```
 
+## Optional MuJoCo Warp benchmark
+
+The repository remains CPU-only by default. MuJoCo Warp is an optional benchmark-only dependency for GPU compatibility and throughput diagnostics; it is not a production backend and does not replace CPU MuJoCo scoring. The benchmark does not compute grasp scores or prove score equivalence.
+
+Install the optional package only in environments where you want to run the GPU diagnostics:
+
+```bash
+python3 -m pip install -e ".[warp]"
+```
+
+The CLI help and default tests work without CUDA, JAX, MJX, MuJoCo Warp, Slurm, or a GPU:
+
+```bash
+python3 scripts/benchmark_mujoco_warp.py --help
+
+python3 scripts/benchmark_mujoco_warp.py \
+  --output-dir outputs/mujoco_warp_local_cpu_smoke \
+  --config configs/eval_fast.yaml \
+  --tool hammer \
+  --steps 5 \
+  --warmup-steps 1 \
+  --cpu-repeats 1 \
+  --warp-repeats 1 \
+  --nworld 2 \
+  --overwrite
+```
+
+On CPU-only systems, the benchmark writes `availability.json`, `benchmark_results.json`, and `benchmark_results.csv`, runs the CPU timing if MuJoCo is installed, and records MuJoCo Warp as skipped unless `--require-warp` is passed. The original generated MJCF is preserved under `model/original_model.xml`; any benchmark-local compatibility copy is written as `model/warp_model.xml` with rewrites recorded in the JSON output.
+
+Capella is the recommended PR10 GPU smoke target:
+
+```bash
+sbatch slurm/mujoco_warp_capella_smoke.sbatch
+```
+
+Alpha is reserved for heavier optional sweeps or later batched-backend experiments:
+
+```bash
+sbatch slurm/mujoco_warp_alpha_sweep.sbatch
+```
+
+Do not treat these diagnostics as physical validation, H100 correctness, or speedup evidence unless the corresponding GPU-node benchmark logs were actually produced and reported.
+
 ## SHAP Analysis
 
 ```bash

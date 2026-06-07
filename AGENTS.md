@@ -1,426 +1,418 @@
 # AGENTS.md
 
-## Project
+This repository is a CPU-first MuJoCo reproduction of the optimization infrastructure from
+“Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
 
-This repository is `handcdo_mujoco`, a CPU-only MuJoCo reproduction framework for the optimization infrastructure of:
+The project is developed primarily from a local laptop using VS Code + Codex. The local machine may
+have only a weak GPU such as MX350. Therefore, default development and validation must remain
+CPU-only. Optional MuJoCo Warp / GPU validation must be guarded and run only when explicitly
+requested, preferably through Slurm on the known Capella or Alpha GPU nodes.
 
-> "Function-based Parametric Co-Design Optimization of Dexterous Hands" (arXiv:2604.27557)
+---
 
-The current scope is:
+## Core project goal
 
-- Parametric hand design sampling.
-- Primitive MJCF generation.
-- MuJoCo CPU grasp and wrench evaluation.
-- TPE-based co-design optimization.
-- Slurm array execution for CPU HPC clusters.
-- Result collection and aggregation.
-- Random Forest / SHAP-based parameter analysis.
+Preserve a robust CPU-first research codebase for:
 
-This repository is intentionally **not** an exact reproduction of the original Isaac Sim, Isaac Lab, UR5e, OptiTrack, hardware fabrication, or real robot setup.
+- parametric hand design generation;
+- MJCF generation from hand designs;
+- CPU MuJoCo grasp and wrench evaluation;
+- design batch evaluation;
+- Optuna TPE hand optimization;
+- multi-fidelity evaluation;
+- Slurm CPU/GPU-compatible validation helpers;
+- result collection and analysis;
+- surrogate-assisted candidate proposal.
 
-The goal is to reproduce the paper's **optimization infrastructure** in a robust, inspectable, CPU-only MuJoCo framework suitable for research iteration and HPC batch execution.
+GPU-related work is allowed only when the active PR prompt asks for it. GPU work must remain optional
+unless the user explicitly requests an experimental GPU PR.
 
-## Reproduction boundary
+---
 
-Always distinguish between:
+## Default local development environment
 
-1. **Paper method**
-   - What arXiv:2604.27557 describes.
-   - Includes original simulator choices, hardware assumptions, fabrication workflow, and real-world validation.
+Assume ordinary Codex work is performed on a local CPU-only or weak-GPU machine.
 
-2. **This repository**
-   - A CPU-only MuJoCo approximation of the optimization infrastructure.
-   - Uses simplified hand geometry, primitive MJCF assets, approximate grasp/wrench evaluation, and configurable contact geometry.
-
-Do not claim numerical equivalence to the original paper unless explicitly backed by a benchmark, table, or validation experiment.
-
-Acceptable approximations:
-
-- MuJoCo CPU approximation of simulation-based grasp stability.
-- Primitive tool and hand geometries.
-- Configurable fingertip and palm contact geometry.
-- TPE over mixed categorical, integer, and continuous hand parameters.
-- Wrench-direction robustness tests.
-- Random Forest / SHAP analysis over generated optimization results.
-
-Out of scope by default:
-
-- Isaac Sim or Isaac Lab integration.
-- ROS integration.
-- GPU-only simulation dependencies.
-- Real robot control.
-- UR5e-specific execution.
-- OptiTrack-specific evaluation.
-- Hardware fabrication workflow.
-- Claims of exact physical reproduction.
-
-## Non-negotiable constraints
-
-- Do not add Isaac Sim, Isaac Lab, ROS, or GPU-only dependencies.
-- Do not remove the existing MuJoCo CPU path.
-- Do not implement MJX or MuJoCo-Warp unless the task explicitly asks for a benchmark-only prototype.
-- Keep PRs small and reviewable.
-- Preserve deterministic behavior when seeds are provided.
-- Preserve existing CLI behavior where possible.
-- Do not commit generated outputs, logs, caches, virtual environments, databases, or large mesh artifacts.
-- Do not rewrite the whole repository.
-- Do not silently change output schemas.
-- Do not silently change scoring semantics.
-- Do not rename public CLI flags unless the task explicitly asks for a breaking change.
-- Do not reformat unrelated files.
-
-## Engineering priorities
-
-1. Preserve current behavior.
-2. Improve test coverage and smoke-test reliability.
-3. Maintain a clean simulator backend boundary.
-4. Add configurable geometry modes only when needed by a concrete task.
-5. Improve fingertip and palm contact geometry incrementally.
-6. Add regression and multi-fidelity evaluation after the baseline is stable.
-7. Benchmark MJX or MuJoCo-Warp only later and only as an optional path.
-
-## Agent execution protocol
-
-Before editing code, classify the task into one or more of the following categories.
-
-### 1. Research-fidelity change
-
-A change is research-fidelity related if it modifies the approximation to the paper's method.
-
-Examples:
-
-- Wrench scoring.
-- Grasp search.
-- Hand parameterization.
-- Geometry or contact model.
-- Tool models.
-- Stability thresholds.
-- Optimization objective.
-- Search-space bounds.
-
-Requirements:
-
-- Explain which part of arXiv:2604.27557 the change is approximating.
-- State whether the change is meant to improve paper fidelity or only improve engineering usability.
-- Add or update tests when possible.
-- Run a simulation smoke test if MuJoCo is available.
-- Report whether baseline scores are expected to change.
-
-### 2. Engineering change
-
-A change is engineering related if it improves infrastructure without changing research semantics.
-
-Examples:
-
-- CLI robustness.
-- Slurm execution.
-- Result collection.
-- Logging.
-- Error handling.
-- Packaging.
-- Test skipping.
-- Config parsing.
-- File layout.
-- Documentation.
-
-Requirements:
-
-- Preserve existing user-facing behavior unless explicitly requested.
-- Keep changes minimal and localized.
-- Prefer extending existing helpers over adding new subsystems.
-- Run `pytest -q`.
-
-### 3. Analysis change
-
-A change is analysis related if it affects post-processing or interpretation.
-
-Examples:
-
-- Random Forest feature importance.
-- SHAP analysis.
-- Convergence plots.
-- Benchmark comparison.
-- Best-design extraction.
-- CSV aggregation.
-
-Requirements:
-
-- Do not change simulation semantics.
-- Keep analysis scripts able to run even when optional packages such as SHAP fail.
-- Preserve input and output filenames unless the task explicitly asks for a new schema.
-- Prefer additive output files over replacing existing outputs.
-
-## Simplicity first
-
-Prefer the smallest implementation that solves the current task.
-
-Do not introduce a new abstraction layer unless at least two concrete implementations need it now.
-
-Good patterns:
-
-- Extend an existing config field.
-- Add a small helper function.
-- Add a focused test.
-- Add a CLI flag with a backward-compatible default.
-- Keep generated outputs under `outputs/`.
-
-Bad patterns:
-
-- Rewriting the hand model generator for a small geometry fix.
-- Adding a new backend for speculative future use.
-- Replacing MuJoCo CPU code with GPU-only code.
-- Introducing Isaac Sim or ROS to appear closer to the original paper.
-- Changing scoring semantics without documentation and tests.
-
-## Surgical changes
-
-Touch only the files required by the task.
-
-Before editing, identify:
-
-- The minimum file set.
-- The expected behavior change.
-- The verification command.
-
-During editing:
-
-- Do not reformat unrelated code.
-- Do not rename unrelated variables.
-- Do not reorganize directories unless explicitly requested.
-- Do not delete working code to simplify a patch.
-- Do not add large dependencies for a small feature.
-
-After editing:
-
-- Summarize changed files.
-- Summarize behavior changes.
-- Summarize tests run.
-- Mention tests not run and why.
-
-## Determinism and reproducibility
-
-Preserve deterministic behavior whenever seeds are provided.
-
-Rules:
-
-- Use explicit seeds for random sampling.
-- Do not introduce global random state unless necessary.
-- Prefer `numpy.random.Generator` over implicit global randomness.
-- Keep design IDs stable for the same parameter dictionary.
-- Do not make result ordering nondeterministic.
-- When parallelizing, preserve per-design failure isolation.
-
-For optimization changes:
-
-- Preserve Optuna study resumability.
-- Preserve deterministic sampler initialization when a seed is provided.
-- Do not silently change the objective direction.
-- Do not silently change the average-over-tools behavior.
-
-## Simulation semantics
-
-The MuJoCo CPU path is the primary backend.
-
-When changing simulation code:
-
-- Preserve graceful failure behavior for failed designs.
-- Failed simulations should produce structured failure payloads where possible.
-- Wrench scores should remain bounded and interpretable.
-- Contact geometry changes should be configurable when they may affect baseline scores.
-- Avoid hard-coding values that should belong in `configs/default_eval.yaml` or `configs/search_space.yaml`.
-
-When adding a geometry mode:
-
-- Keep the existing geometry mode available.
-- Add a config switch.
-- Add a smoke test or unit test.
-- Document expected differences from the previous mode.
-
-## Backend policy
-
-The backend abstraction exists to protect the MuJoCo CPU path, not to encourage speculative backend growth.
-
-Allowed by default:
-
-- `mujoco`
-- `mujoco_cpu`
-
-Not allowed by default:
-
-- `isaac`
-- `isaac_sim`
-- `isaac_lab`
-- `ros`
-- `mjx`
-- `mujoco_warp`
-
-MJX or MuJoCo-Warp may only be added as an optional benchmark prototype when explicitly requested. They must not replace the default CPU backend.
-
-## CLI and output compatibility
-
-Preserve existing commands where possible.
-
-Important existing workflows:
+Default validation commands:
 
 ```bash
-python3 scripts/generate_designs.py --n-designs 5 --output-dir outputs/designs --seed 0
-python3 scripts/evaluate_design_batch.py --task-id 0 --designs-per-task 5 --design-dir outputs/designs --results-dir outputs/results --config configs/default_eval.yaml
-python3 scripts/collect_results.py --results-dir outputs/results --output-csv outputs/results.csv
+pytest -q -m "not gpu and not slow"
+python3 scripts/benchmark_mujoco_warp.py --help
 ```
+
+If `scripts/benchmark_mujoco_warp.py` does not exist yet, only run the pytest command.
+
+Do not require CUDA, H100, JAX, MJX, MuJoCo Warp, Isaac Sim, ROS, or Slurm for default tests.
+
+If a command cannot be run because a dependency is missing, report exactly what was missing and which
+validation level was skipped.
+
+---
+
+## Local vs GPU/HPC validation
+
+Default validation must be runnable on a normal CPU-only developer machine.
+
+GPU-related code must be written so that:
+
+- importing modules does not require GPU dependencies;
+- parsing CLI flags does not require GPU dependencies;
+- default pytest does not require GPU dependencies;
+- missing optional GPU dependencies produce clear skip/error messages;
+- no GPU code path is executed unless explicitly requested.
+
+MuJoCo Warp tests must be optional and guarded by explicit markers or environment variables:
 
 ```bash
-python3 scripts/run_optuna_round.py \
-  --study-name handcdo-mujoco \
-  --storage sqlite:///outputs/handcdo_optuna.db \
-  --n-trials 20 \
-  --n-grasp-trials 4 \
-  --output-dir outputs \
-  --seed 0 \
-  --tools hammer,spoon,knife \
-  --backend mujoco_cpu
+RUN_GPU_TESTS=1 pytest -q -m gpu
 ```
 
-Do not break legacy aliases such as `--backend mujoco` unless the task explicitly asks for a breaking change.
+Do not claim that MuJoCo Warp functionality, H100 behavior, or GPU throughput is validated unless a
+Slurm GPU job or equivalent allocated GPU-node test has actually been run.
 
-Generated outputs should remain under `outputs/` unless the user explicitly chooses another directory.
+If only local CPU tests were run, report this explicitly:
 
-## Testing requirements
+```text
+GPU/HPC tests were not run because this environment has no allocated CUDA GPU.
+```
 
-Run the smallest relevant verification for the change.
+For laptops with weak GPUs such as MX350, treat GPU tests as unavailable for performance conclusions.
+A local GPU smoke test may be useful only for import/device sanity, not for H100 throughput claims.
 
-### General code changes
+---
+
+## Pytest markers
+
+Recommended pytest markers:
+
+```text
+gpu: requires CUDA-capable GPU and optional MuJoCo Warp dependencies
+slow: long-running benchmark or sweep
+slurm: intended to run inside a Slurm allocation
+capella: intended for Capella GPU validation
+alpha: intended for Alpha GPU validation
+```
+
+Default test commands must exclude GPU and slow tests:
 
 ```bash
-pytest -q
+pytest -q -m "not gpu and not slow"
 ```
 
-### Simulation or geometry changes
+GPU tests must skip unless explicitly enabled:
+
+```python
+import os
+import pytest
+
+pytestmark = pytest.mark.gpu
+
+def test_gpu_only_feature():
+    if os.environ.get("RUN_GPU_TESTS") != "1":
+        pytest.skip("Set RUN_GPU_TESTS=1 to enable GPU tests.")
+```
+
+---
+
+## Known HPC GPU scheduler profiles
+
+The user's HPC has the following GPU scheduler profiles.
+
+### Capella GPU profile
+
+```yaml
+SCHEDULER_PARAMETERS_CAPELLA: "--partition=capella --nodes=1 --ntasks=1 --cpus-per-task=56 --mem=700000 --cpu-freq=High --gres=gpu:4 --verbose --time=24:00:00 --licenses=''"
+```
+
+Equivalent direct Slurm options:
 
 ```bash
-python3 scripts/generate_designs.py --n-designs 2 --output-dir outputs/smoke_designs --seed 0
-python3 scripts/evaluate_design_batch.py --task-id 0 --designs-per-task 2 --design-dir outputs/smoke_designs --results-dir outputs/smoke_results --config configs/default_eval.yaml
-python3 scripts/collect_results.py --results-dir outputs/smoke_results --output-csv outputs/smoke_results.csv
+--partition=capella
+--nodes=1
+--ntasks=1
+--cpus-per-task=56
+--mem=700000
+--cpu-freq=High
+--gres=gpu:4
+--verbose
+--time=24:00:00
 ```
 
-### Baseline-sensitive changes
+### Alpha GPU profile
 
-For contact model, wrench scoring, grasp optimization, or objective changes, also run or update a small baseline comparison when practical.
+```yaml
+SCHEDULER_PARAMETERS_ALPHA: "--partition=alpha --nodes=1 --ntasks=1 --cpus-per-task=44 --mem=990000 --cpu-freq=High --gres=gpu:8 --verbose --time=72:00:00 --licenses=''"
+```
 
-Example:
+Equivalent direct Slurm options:
 
 ```bash
-python3 scripts/run_baseline_benchmark.py \
-  --n-designs 2 \
-  --n-grasp-trials 1 \
-  --tools hammer \
-  --seed 0 \
-  --backend mujoco_cpu \
-  --config configs/default_eval.yaml \
-  --output-dir outputs/smoke_baseline
+--partition=alpha
+--nodes=1
+--ntasks=1
+--cpus-per-task=44
+--mem=990000
+--cpu-freq=High
+--gres=gpu:8
+--verbose
+--time=72:00:00
 ```
 
-Then compare against the relevant baseline using the repository's benchmark comparison script if available.
+Use Capella for short PR10 smoke validation by default.
 
-### MuJoCo availability
+Use Alpha only for heavier optional sweeps or PR11+ batched backend experiments.
 
-If MuJoCo is not installed in the environment:
+Do not require either scheduler profile for default local tests.
 
-- MuJoCo-dependent tests should be skipped gracefully.
-- Non-simulation tests should still run.
-- Do not fail unrelated tests only because MuJoCo is unavailable.
+---
 
-## Dependency policy
+## Recommended validation levels
 
-Keep dependencies minimal.
+### Level 1: local CPU-only validation
 
-Current dependency classes:
+Use this from VS Code + Codex on the laptop.
 
-- Core numerical stack.
-- MuJoCo CPU simulation.
-- Optuna optimization.
-- scikit-learn analysis.
-- SHAP as optional analysis functionality.
-- matplotlib for plots.
-- PyYAML for config.
-- pytest for tests.
+```bash
+pytest -q -m "not gpu and not slow"
+python3 scripts/benchmark_mujoco_warp.py --help
+python3 scripts/benchmark_mujoco_warp.py \
+  --output-dir outputs/mujoco_warp_local_cpu_smoke \
+  --config configs/eval_fast.yaml \
+  --tool hammer \
+  --steps 5 \
+  --warmup-steps 1 \
+  --cpu-repeats 1 \
+  --warp-repeats 1 \
+  --nworld 2 \
+  --overwrite
+```
 
-Do not add heavy dependencies unless the task clearly requires them.
+Expected behavior on CPU-only systems:
 
-Avoid:
+- default tests pass;
+- CLI help works;
+- CPU benchmark runs if CPU MuJoCo is installed;
+- MuJoCo Warp is skipped gracefully if unavailable;
+- output JSON/CSV files are written.
 
-- GPU-only libraries.
-- Robotics middleware.
-- Simulator stacks outside the stated scope.
-- Large mesh or asset packages.
-- Dependencies that are difficult to install on headless HPC nodes.
+### Level 2: Capella GPU smoke validation
 
-## HPC and Slurm policy
+Use Capella for PR10 GPU smoke validation.
 
-This repository should remain suitable for CPU HPC batch execution.
+Direct Slurm submission command:
 
-For Slurm changes:
+```bash
+sbatch \
+  --partition=capella \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=56 \
+  --mem=700000 \
+  --cpu-freq=High \
+  --gres=gpu:4 \
+  --verbose \
+  --time=24:00:00 \
+  slurm/mujoco_warp_capella_smoke.sbatch
+```
 
-- Preserve array-task behavior.
-- Preserve per-design failure isolation.
-- Avoid assumptions about local GPUs.
-- Avoid hard-coded cluster-specific paths.
-- Keep logs and generated outputs out of git.
-- Keep scripts usable from a clean checkout after editable install.
+Inside the allocated job, run:
 
-For long-running experiments:
+```bash
+RUN_GPU_TESTS=1 pytest -q -m gpu
 
-- Prefer resumable workflows.
-- Prefer explicit output directories.
-- Prefer small smoke tests in documentation.
-- Do not make CI or default tests depend on large experiments.
+python3 scripts/benchmark_mujoco_warp.py \
+  --output-dir outputs/mujoco_warp_capella_smoke_${SLURM_JOB_ID} \
+  --config configs/eval_fast.yaml \
+  --tool hammer \
+  --scene-mode contact_smoke \
+  --steps 20 \
+  --warmup-steps 2 \
+  --cpu-repeats 1 \
+  --warp-repeats 1 \
+  --nworld 8 \
+  --nconmax 64 \
+  --njmax 128 \
+  --require-warp \
+  --overwrite
+```
 
-## Documentation policy
+### Level 3: Alpha GPU heavier validation
 
-When behavior changes, update documentation close to the change.
+Use Alpha only for heavier optional sweeps or PR11+ batched backend work.
 
-Update README or relevant comments when:
+Direct Slurm submission command:
 
-- A CLI flag is added.
-- A config field is added.
-- Output schema changes.
-- Simulation semantics change.
-- A new geometry mode is added.
-- A benchmark or analysis workflow changes.
+```bash
+sbatch \
+  --partition=alpha \
+  --nodes=1 \
+  --ntasks=1 \
+  --cpus-per-task=44 \
+  --mem=990000 \
+  --cpu-freq=High \
+  --gres=gpu:8 \
+  --verbose \
+  --time=72:00:00 \
+  slurm/mujoco_warp_alpha_sweep.sbatch
+```
 
-Do not over-document implementation details that are likely to change.
+Inside the allocated job, use larger optional sweeps only if PR10 smoke has already passed on Capella.
 
-## Code style
+Do not require Alpha validation for PR10 acceptance.
 
-Use straightforward Python.
+---
 
-Prefer:
+## MuJoCo Warp policy
 
-- Small functions.
-- Dataclasses for structured configs or payloads.
-- Type hints for public functions.
-- Explicit error messages.
-- Clear config parsing.
-- Deterministic tests.
+For PR10:
 
-Avoid:
+- implement benchmark-only compatibility and throughput diagnostics;
+- do not add a production backend;
+- do not modify backend registry behavior;
+- do not change default CLI behavior;
+- default tests must remain CPU-only;
+- GPU validation is optional and should use Capella first.
 
-- Clever abstractions.
-- Hidden global state.
-- Broad exception swallowing without structured output.
-- Large functions that mix sampling, simulation, optimization, and plotting.
-- Circular imports.
+For PR11 or later:
 
-## Review checklist
+- an experimental backend may be added only if the prompt explicitly requests it;
+- CPU backend behavior must remain unchanged;
+- missing MuJoCo Warp must not break imports;
+- H100 throughput claims require actual GPU-node benchmark logs from Capella or Alpha.
 
-Before considering a change complete, verify:
+Do not use `mujoco.mjx` or JAX unless the prompt explicitly requests a JAX/MJX implementation.
+Prefer standalone MuJoCo Warp where applicable:
 
-- The change respects the CPU-only MuJoCo scope.
-- The change does not introduce Isaac Sim, ROS, or GPU-only assumptions.
-- The change is minimal and localized.
-- Existing CLI behavior is preserved where possible.
-- Seeds still produce deterministic behavior where relevant.
-- Generated artifacts are not committed.
-- Relevant tests or smoke tests were run.
-- Any skipped tests are explained.
-- Any expected score change is documented.
-- Paper-fidelity claims are phrased as approximations unless validated.
+```python
+import mujoco_warp as mjw
+```
+
+---
+
+## Backend stability policy
+
+Do not change CPU backend semantics unless the active task explicitly asks for it.
+
+The following behavior must remain stable unless a prompt explicitly says otherwise:
+
+- `mujoco` remains a CPU MuJoCo alias;
+- `mujoco_cpu` remains the explicit CPU backend;
+- default optimization uses CPU MuJoCo;
+- default tests pass without GPU;
+- result JSON/CSV schema changes must be backward-compatible or clearly documented.
+
+For benchmark-only PRs, do not add new normal `--backend` choices.
+
+---
+
+## MJCF and geometry policy
+
+Reuse existing MJCF generation helpers whenever possible.
+
+Do not duplicate design loading, MJCF generation, CPU MuJoCo evaluation, grasp sampling, wrench
+scoring, or result collection logic unless a narrow benchmark-local helper is necessary.
+
+If benchmark-local MJCF rewrites are needed for MuJoCo Warp compatibility:
+
+- do not modify the global MJCF generator defaults;
+- preserve the original generated MJCF;
+- write a benchmark-local rewritten copy;
+- record every rewrite in JSON output;
+- do not silently delete bodies, joints, geoms, contacts, actuators, or tools.
+
+Known example: if the generated MJCF uses `integrator="implicitfast"` and MuJoCo Warp rejects it,
+rewrite only the benchmark-local copy to a compatible integrator such as `Euler`, and record the rewrite.
+
+---
+
+## Slurm script policy
+
+Slurm scripts may be added as optional helpers for Capella and Alpha.
+
+Recommended optional files:
+
+```text
+slurm/mujoco_warp_capella_smoke.sbatch
+slurm/mujoco_warp_alpha_sweep.sbatch
+```
+
+Slurm scripts must not be executed automatically from default pytest.
+
+Do not commit large benchmark outputs produced by these scripts.
+
+Use `logs/` for Slurm stdout/stderr and `outputs/` for benchmark result files.
+
+---
+
+## Output and generated files
+
+Do not commit generated outputs.
+
+Do not commit:
+
+- benchmark outputs;
+- generated MJCF files;
+- generated design JSON files;
+- Slurm logs;
+- caches;
+- virtual environments;
+- downloaded models or datasets;
+- large binary artifacts.
+
+If rerunning into an existing output directory may mix stale results, fail by default unless
+`--overwrite` is passed.
+
+---
+
+## Code quality expectations
+
+Prefer small, testable functions.
+
+Use typed dataclasses for structured configs and results when useful.
+
+Avoid hidden side effects at import time.
+
+Avoid top-level optional GPU imports.
+
+Use lazy imports inside optional code paths.
+
+Record structured failures instead of swallowing exceptions.
+
+When adding CLI scripts:
+
+- keep the script thin;
+- place implementation in importable package modules;
+- ensure `--help` works without optional GPU dependencies;
+- validate numeric arguments clearly.
+
+---
+
+## Reporting expectations
+
+When summarizing changes, distinguish between:
+
+- implemented but not run;
+- run locally on CPU;
+- skipped because optional dependency is absent;
+- run on Capella GPU;
+- run on Alpha GPU;
+- failed with a specific error.
+
+Do not imply GPU correctness or speedup without GPU benchmark logs.
+
+A correct summary may say:
+
+```text
+Validated locally with CPU-only tests. Capella/Alpha GPU MuJoCo Warp validation was not run in this environment.
+```
+
+---
+
+## Safety boundaries
+
+Do not implement real robot control, fabrication instructions, or hardware deployment code unless a
+future prompt explicitly requests it.
+
+Do not claim physical validity from simplified MuJoCo benchmarks.
+
+Do not present benchmark-only results as final scientific conclusions.
