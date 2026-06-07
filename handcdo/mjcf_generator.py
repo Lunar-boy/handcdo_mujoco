@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -7,8 +8,11 @@ import xml.etree.ElementTree as ET
 from .design_space import HandDesign
 from .geometry_config import FingerContactConfig, GeometryConfig, PalmContactConfig, ToolContactConfig
 from .hand_model import DigitSpec, HandModel, LinkSpec, build_hand_model
+from .tool_geometry import ToolGeometryAsset, resolve_tool_geometry
 from .tools import ToolSpec, get_tool
 from .utils import ensure_dir
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _vec(xs: tuple[float, ...] | list[float]) -> str:
@@ -35,8 +39,10 @@ def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
         raise NotImplementedError(f"palm contact mode {geometry_config.palm.mode!r} is not implemented yet")
     if geometry_config.palm.mode not in {"box_pads", "pad_grid"}:
         raise ValueError(f"Unknown palm contact mode {geometry_config.palm.mode!r}")
-    if geometry_config.tool.mode != "primitive":
+    if geometry_config.tool.mode == "convex_mesh":
         raise NotImplementedError(f"tool contact mode {geometry_config.tool.mode!r} is not implemented yet")
+    if geometry_config.tool.mode not in {"primitive", "hybrid"}:
+        raise ValueError(f"Unknown tool contact mode {geometry_config.tool.mode!r}")
 
 
 def _add_fingertip_pad_geom(parent: ET.Element, link: LinkSpec, finger_config: FingerContactConfig) -> None:
@@ -170,12 +176,12 @@ def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContac
         raise ValueError(f"Unknown palm contact mode {palm_config.mode!r}")
 
 
-def _add_tool(parent: ET.Element, tool: ToolSpec, fixed: bool = False, tool_config: ToolContactConfig | None = None) -> None:
-    _ = tool_config
-    body = ET.SubElement(parent, "body", name="tool", pos=_vec(tool.reference_pos), quat=_vec(tool.reference_quat))
-    if not fixed:
-        ET.SubElement(body, "freejoint", name="tool_free")
-    fr = _vec(tool.friction)
+def _add_primitive_tool_geoms(
+    body: ET.Element,
+    tool: ToolSpec,
+    friction: tuple[float, float, float],
+) -> None:
+    fr = _vec(friction)
     if tool.name == "hammer":
         ET.SubElement(body, "geom", name="hammer_handle", type="capsule", fromto="-0.10 0 0 0.11 0 0", size="0.012", mass=str(tool.mass * 0.45), friction=fr)
         ET.SubElement(body, "geom", name="hammer_head", type="box", pos="0.12 0 0.03", size="0.035 0.018 0.018", mass=str(tool.mass * 0.55), friction=fr)
@@ -189,14 +195,91 @@ def _add_tool(parent: ET.Element, tool: ToolSpec, fixed: bool = False, tool_conf
         raise ValueError(f"Unsupported tool {tool.name}")
 
 
+def _add_hybrid_tool_geoms(
+    body: ET.Element,
+    tool: ToolSpec,
+    friction: tuple[float, float, float],
+    asset_parent: ET.Element,
+    geometry_asset: ToolGeometryAsset,
+) -> None:
+    if geometry_asset.visual_mesh is not None:
+        mesh_name = f"{tool.name}_visual_mesh"
+        ET.SubElement(asset_parent, "mesh", name=mesh_name, file=str(geometry_asset.visual_mesh.resolve()))
+        ET.SubElement(
+            body,
+            "geom",
+            name=f"{tool.name}_visual",
+            type="mesh",
+            mesh=mesh_name,
+            mass="0",
+            contype="0",
+            conaffinity="0",
+        )
+
+    if geometry_asset.collision_meshes:
+        geom_mass = tool.mass / len(geometry_asset.collision_meshes)
+        for index, mesh_path in enumerate(geometry_asset.collision_meshes):
+            mesh_name = f"{tool.name}_collision_mesh_{index}"
+            ET.SubElement(asset_parent, "mesh", name=mesh_name, file=str(mesh_path.resolve()))
+            ET.SubElement(
+                body,
+                "geom",
+                name=f"{tool.name}_collision_{index}",
+                type="mesh",
+                mesh=mesh_name,
+                mass=str(geom_mass),
+                friction=_vec(friction),
+                contype="1",
+                conaffinity="1",
+            )
+    else:
+        _add_primitive_tool_geoms(body, tool, friction)
+
+
+def _add_tool(
+    world_parent: ET.Element,
+    tool: ToolSpec,
+    fixed: bool = False,
+    tool_config: ToolContactConfig | None = None,
+    asset_parent: ET.Element | None = None,
+    tool_assets_dir: Path = Path("assets/tools"),
+    geometry_asset: ToolGeometryAsset | None = None,
+) -> None:
+    tool_config = tool_config or ToolContactConfig()
+    friction = tool_config.friction if tool_config.friction is not None else tool.friction
+    body = ET.SubElement(world_parent, "body", name="tool", pos=_vec(tool.reference_pos), quat=_vec(tool.reference_quat))
+    if not fixed:
+        ET.SubElement(body, "freejoint", name="tool_free")
+
+    if tool_config.mode == "primitive":
+        _add_primitive_tool_geoms(body, tool, friction)
+    elif tool_config.mode == "hybrid":
+        geometry_asset = geometry_asset or resolve_tool_geometry(tool.name, tool_assets_dir)
+        if geometry_asset.visual_mesh is None and not geometry_asset.collision_meshes:
+            LOGGER.warning("No hybrid mesh assets found for tool=%s; using primitive fallback", tool.name)
+            _add_primitive_tool_geoms(body, tool, friction)
+        else:
+            if asset_parent is None:
+                raise ValueError("Hybrid tool mesh assets require a root-level MJCF asset element")
+            _add_hybrid_tool_geoms(body, tool, friction, asset_parent, geometry_asset)
+    elif tool_config.mode == "convex_mesh":
+        raise NotImplementedError(f"tool contact mode {tool_config.mode!r} is not implemented yet")
+    else:
+        raise ValueError(f"Unknown tool contact mode {tool_config.mode!r}")
+
+
 def build_mjcf_xml(
     hand: HandModel,
     tool: ToolSpec | None = None,
     fixed_tool: bool = False,
     geometry_config: GeometryConfig | None = None,
+    tool_assets_dir: Path = Path("assets/tools"),
 ) -> str:
     geometry_config = geometry_config or GeometryConfig()
     _ensure_supported_geometry_config(geometry_config)
+    tool_geometry_asset = None
+    if tool is not None and geometry_config.tool.mode == "hybrid":
+        tool_geometry_asset = resolve_tool_geometry(tool.name, tool_assets_dir)
     root = ET.Element("mujoco", model=f"handcdo_{hand.design.design_id}")
     ET.SubElement(root, "compiler", angle="degree", coordinate="local", inertiafromgeom="true")
     ET.SubElement(root, "option", timestep="0.002", gravity="0 0 -9.81", integrator="implicitfast", cone="elliptic")
@@ -204,6 +287,11 @@ def build_mjcf_xml(
     default = ET.SubElement(root, "default")
     ET.SubElement(default, "joint", limited="true")
     ET.SubElement(default, "geom", solref="0.012 1", solimp="0.9 0.95 0.001", margin="0.001")
+    asset = None
+    if tool_geometry_asset is not None and (
+        tool_geometry_asset.visual_mesh is not None or tool_geometry_asset.collision_meshes
+    ):
+        asset = ET.SubElement(root, "asset")
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", name="top", pos="0 0 1.0")
     ET.SubElement(world, "geom", name="floor", type="plane", size="0.6 0.6 0.02", pos="0 0 -0.04", friction="1 0.01 0.001")
@@ -212,7 +300,15 @@ def build_mjcf_xml(
     for digit in hand.digits:
         _add_digit(palm, digit, finger_config=geometry_config.finger)
     if tool is not None:
-        _add_tool(world, tool, fixed=fixed_tool, tool_config=geometry_config.tool)
+        _add_tool(
+            world,
+            tool,
+            fixed=fixed_tool,
+            tool_config=geometry_config.tool,
+            asset_parent=asset,
+            tool_assets_dir=tool_assets_dir,
+            geometry_asset=tool_geometry_asset,
+        )
     actuators = ET.SubElement(root, "actuator")
     for joint in hand.joint_names:
         ET.SubElement(actuators, "position", name=f"{joint}_pos", joint=joint, kp="6.0", ctrlrange="-0.3 1.35", ctrllimited="true")
@@ -226,12 +322,19 @@ def write_design_model(
     tool_name: str | None = None,
     fixed_tool: bool = False,
     geometry_config: GeometryConfig | None = None,
+    tool_assets_dir: Path = Path("assets/tools"),
 ) -> Path:
     hand = build_hand_model(design)
     tool = get_tool(tool_name) if tool_name else None
     design_dir = ensure_dir(Path(output_dir) / "designs" / design.design_id)
     design.to_json(design_dir / "design.json")
-    xml = build_mjcf_xml(hand, tool=tool, fixed_tool=fixed_tool, geometry_config=geometry_config)
+    xml = build_mjcf_xml(
+        hand,
+        tool=tool,
+        fixed_tool=fixed_tool,
+        geometry_config=geometry_config,
+        tool_assets_dir=tool_assets_dir,
+    )
     model_path = design_dir / ("model.xml" if tool is None else f"model_{tool.name}.xml")
     model_path.write_text(xml, encoding="utf-8")
     return model_path

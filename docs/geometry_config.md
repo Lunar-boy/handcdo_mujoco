@@ -12,4 +12,8 @@ These modes are CPU-friendly MuJoCo primitive approximations for contact experim
 
 The default `palm.mode: box_pads` geometry keeps the original two local `palm_kernel_pad_*` box pads. The optional `palm.mode: pad_grid` geometry replaces those two local pads with a deterministic, low-resolution grid of primitive box contact pads across the palm's top surface. Higher `pad_resolution` values can better approximate distributed palm contact, but increase contact count and simulation cost. `max_num_pad_geoms` limits the permitted grid size.
 
-Use `configs/geometry_medium.yaml` for a runnable configuration combining fingertip pads and a palm pad grid. Hybrid tool collision remains future work.
+Use `configs/geometry_medium.yaml` for a runnable configuration combining fingertip pads and a palm pad grid.
+
+The default `tool.mode: primitive` preserves the original primitive hammer, spoon, and knife models. `tool.mode: hybrid` discovers optional visual and collision meshes under `assets/tools/<tool_name>/`. Missing mesh assets fall back exactly to primitive tool geometry, so `configs/geometry_high.yaml` is runnable without real tool assets and does not change optimization semantics in that fallback case.
+
+Hybrid visual and collision meshes should be separate. Visual meshes are non-colliding; collision meshes should be convex or low-complexity for stable MuJoCo contact. Hybrid mode does not perform convex decomposition. See [Tool Geometry](tool_geometry.md) for file naming and path details.

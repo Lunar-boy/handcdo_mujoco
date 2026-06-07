@@ -150,6 +150,7 @@ def evaluate_grasp(
     grasp: GraspParams,
     config: EvaluationConfig | None = None,
     geometry_config: GeometryConfig | None = None,
+    tool_assets_dir: str | Path = Path("assets/tools"),
 ) -> GraspEvaluation:
     config = config or EvaluationConfig()
     geometry_config = geometry_config or GeometryConfig()
@@ -157,7 +158,12 @@ def evaluate_grasp(
     try:
         import mujoco
 
-        xml = build_mjcf_xml(build_hand_model(design), tool=tool, geometry_config=geometry_config)
+        xml = build_mjcf_xml(
+            build_hand_model(design),
+            tool=tool,
+            geometry_config=geometry_config,
+            tool_assets_dir=Path(tool_assets_dir),
+        )
         model = _load_model(xml)
         data = mujoco.MjData(model)
         _set_tool_pose(model, data, tool, grasp)

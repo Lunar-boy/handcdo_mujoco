@@ -28,12 +28,13 @@ def evaluate_design(
     backend_name: str = "mujoco_cpu",
     backend: SimulatorBackend | None = None,
     sampler: str = "tpe",
+    tool_assets_dir: str | Path = Path("assets/tools"),
 ) -> dict[str, Any]:
     backend = backend or get_backend(backend_name)
     result_dir = ensure_dir(result_dir if result_dir is not None else Path(output_dir) / "results")
     design_dir = ensure_dir(Path(output_dir) / "designs" / design.design_id)
     design.to_json(design_dir / "design.json")
-    write_design_model(design, output_dir, geometry_config=geometry_config)
+    write_design_model(design, output_dir, geometry_config=geometry_config, tool_assets_dir=Path(tool_assets_dir))
     tool_results = []
     for i, tool in enumerate(tools):
         tool_results.append(
@@ -46,6 +47,7 @@ def evaluate_design(
                 geometry_config=geometry_config,
                 backend=backend,
                 sampler=sampler,
+                tool_assets_dir=tool_assets_dir,
             )
         )
     score = float(np.mean([r["best_score"] for r in tool_results])) if tool_results else 0.0

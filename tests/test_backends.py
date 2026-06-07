@@ -17,8 +17,8 @@ class FakeBackend:
     def __init__(self) -> None:
         self.calls = []
 
-    def evaluate_grasp(self, design, tool_name, grasp, config, geometry_config=None):
-        self.calls.append((design, tool_name, grasp, config, geometry_config))
+    def evaluate_grasp(self, design, tool_name, grasp, config, geometry_config=None, tool_assets_dir="assets/tools"):
+        self.calls.append((design, tool_name, grasp, config, geometry_config, tool_assets_dir))
         return GraspEvaluation(
             design_id=design.design_id,
             tool=tool_name,
@@ -108,6 +108,24 @@ def test_evaluate_design_passes_geometry_config_to_backend(tmp_path):
     )
 
     assert backend.calls[0][4] == geometry_config
+
+
+def test_evaluate_design_passes_tool_assets_dir_to_backend(tmp_path):
+    design = DesignSpace().sample(seed=30)
+    backend = FakeBackend()
+    tool_assets_dir = tmp_path / "tool_assets"
+
+    evaluate_design(
+        design,
+        tools=["hammer"],
+        n_grasp_trials=1,
+        output_dir=tmp_path,
+        seed=0,
+        backend=backend,
+        tool_assets_dir=tool_assets_dir,
+    )
+
+    assert backend.calls[0][5] == tool_assets_dir
 
 
 def test_evaluate_task_writes_success_to_requested_results_dir(tmp_path, monkeypatch):
