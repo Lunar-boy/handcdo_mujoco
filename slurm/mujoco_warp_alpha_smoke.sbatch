@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=handcdo-warp-capella-smoke
-#SBATCH --partition=capella
+#SBATCH --job-name=handcdo-warp-alpha-smoke
+#SBATCH --partition=alpha
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=64000
+#SBATCH --mem=180000
 #SBATCH --cpu-freq=High
 #SBATCH --gres=gpu:1
 #SBATCH --verbose
@@ -31,13 +31,9 @@ echo "=== GPU ==="
 nvidia-smi || true
 
 # Optional: load site modules if your HPC requires them.
-# module purge
-# module load Python/3.11
-# module load CUDA
-
 module purge
-ml load release/25.06 GCCcore/13.3.0 Python/3.12.3 CUDA/12.8.0
 
+ml load release/25.06 GCCcore/13.3.0 Python/3.12.3 CUDA/12.8.0
 # Use project virtual environment by default.
 # Override with: sbatch --export=ALL,VENV_PATH=/path/to/venv slurm/mujoco_warp_capella_smoke.sbatch
 VENV_PATH="${VENV_PATH:-.venv}"

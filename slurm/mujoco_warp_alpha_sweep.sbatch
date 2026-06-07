@@ -21,7 +21,10 @@ mkdir -p logs outputs
 # module purge
 # module load Python/3.11
 # module load CUDA
-# source .venv/bin/activate
+
+module purge
+ml load release/25.06 GCCcore/13.3.0 Python/3.12.3 CUDA/12.8.0
+source .venv/bin/activate
 
 hostname
 date

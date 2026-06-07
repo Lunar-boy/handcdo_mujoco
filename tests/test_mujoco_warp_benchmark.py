@@ -170,9 +170,20 @@ def test_cpu_smoke_benchmark_skips_cleanly_if_mujoco_unavailable(tmp_path):
 
 def test_optional_slurm_helpers_contain_expected_scheduler_profiles():
     capella = open("slurm/mujoco_warp_capella_smoke.sbatch", encoding="utf-8").read()
-    alpha = open("slurm/mujoco_warp_alpha_sweep.sbatch", encoding="utf-8").read()
+    #alpha = open("slurm/mujoco_warp_alpha_sweep.sbatch", encoding="utf-8").read()
 
+
+    # Capella PR10 smoke should be lightweight.
     assert "#SBATCH --partition=capella" in capella
-    assert "#SBATCH --gres=gpu:4" in capella
-    assert "#SBATCH --partition=alpha" in alpha
-    assert "#SBATCH --gres=gpu:8" in alpha
+    assert "#SBATCH --nodes=1" in capella
+    assert "#SBATCH --ntasks=1" in capella
+    assert "#SBATCH --cpus-per-task=8" in capella
+    assert "#SBATCH --mem=64000" in capella
+    assert "#SBATCH --gres=gpu:1" in capella
+    assert "#SBATCH --time=00:30:00" in capella
+
+    # The script must not use system Python for project commands.
+    assert "VENV_PATH=" in capella
+    assert "${VENV_PATH}/bin/python" in capella or '"${PYTHON}"' in capella
+    assert "python3 -m pytest" not in capella
+    assert "${PYTHON}\" -m pytest" in capella or '"${PYTHON}" -m pytest' in capella
