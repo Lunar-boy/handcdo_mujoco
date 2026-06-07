@@ -16,6 +16,8 @@ If no meshes exist, hybrid mode logs a warning and falls back to the original pr
 
 Generated MJCF uses resolved absolute mesh paths because evaluation writes XML to a temporary file before MuJoCo loads it. A future export-oriented change may add portable relative-path support.
 
+Hybrid mesh loading is covered by tests using temporary minimal OBJ files. `evaluate_grasp(..., tool_assets_dir=...)` accepts custom tool asset locations; exported XML still uses absolute mesh paths for robust temporary-file MuJoCo loading and is not portable across machines.
+
 This infrastructure does not implement convex decomposition, paper-level tool reconstruction, Isaac Sim, URDF, or USD support. Do not commit large mesh assets.
 
 ## Regression Check

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -23,6 +24,7 @@ def optimize_grasp_for_tool(
     geometry_config: GeometryConfig | None = None,
     sampler: str = "tpe",
     backend: SimulatorBackend | None = None,
+    tool_assets_dir: str | Path = Path("assets/tools"),
 ) -> dict[str, Any]:
     backend = backend or get_backend("mujoco_cpu")
     best: GraspEvaluation | None = None
@@ -37,7 +39,14 @@ def optimize_grasp_for_tool(
             def objective(trial: Any) -> float:
                 nonlocal best
                 grasp = optuna_suggest_grasp(trial)
-                result = backend.evaluate_grasp(design, tool_name, grasp, config, geometry_config=geometry_config)
+                result = backend.evaluate_grasp(
+                    design,
+                    tool_name,
+                    grasp,
+                    config,
+                    geometry_config=geometry_config,
+                    tool_assets_dir=tool_assets_dir,
+                )
                 trials.append(result.to_dict())
                 if best is None or result.score > best.score:
                     best = result
@@ -52,7 +61,14 @@ def optimize_grasp_for_tool(
         rng = np.random.default_rng(seed)
         for _ in range(n_trials):
             grasp = sample_random_grasp(rng=rng)
-            result = backend.evaluate_grasp(design, tool_name, grasp, config, geometry_config=geometry_config)
+            result = backend.evaluate_grasp(
+                design,
+                tool_name,
+                grasp,
+                config,
+                geometry_config=geometry_config,
+                tool_assets_dir=tool_assets_dir,
+            )
             trials.append(result.to_dict())
             if best is None or result.score > best.score:
                 best = result
