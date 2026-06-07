@@ -29,7 +29,7 @@ nvidia-smi || true
 
 python3 -V
 
-RUN_GPU_TESTS=1 pytest -q -m gpu
+RUN_GPU_TESTS=1 python3 -m pytest -q -m gpu
 
 python3 scripts/benchmark_mujoco_warp.py \
   --output-dir "outputs/mujoco_warp_alpha_sweep_${SLURM_JOB_ID}" \

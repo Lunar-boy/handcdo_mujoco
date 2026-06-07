@@ -29,9 +29,9 @@ nvidia-smi || true
 
 python3 -V
 
-pytest -q -m "not gpu and not slow"
+python3 -m pytest -q -m "not gpu and not slow"
 
-RUN_GPU_TESTS=1 pytest -q -m gpu
+RUN_GPU_TESTS=1 python3 -m pytest -q -m gpu
 
 python3 scripts/benchmark_mujoco_warp.py \
   --output-dir "outputs/mujoco_warp_capella_smoke_${SLURM_JOB_ID}" \

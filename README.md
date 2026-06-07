@@ -115,9 +115,12 @@ Install the optional package only in environments where you want to run the GPU 
 python3 -m pip install -e ".[warp]"
 ```
 
-The CLI help and default tests work without CUDA, JAX, MJX, MuJoCo Warp, Slurm, or a GPU:
+Default tests do not require CUDA, Slurm, MuJoCo Warp, JAX, MJX, or H100:
 
 ```bash
+python3 -m pip install -e ".[test]"
+python3 -m pytest -q -m "not gpu and not slow"
+
 python3 scripts/benchmark_mujoco_warp.py --help
 
 python3 scripts/benchmark_mujoco_warp.py \
@@ -133,6 +136,12 @@ python3 scripts/benchmark_mujoco_warp.py \
 ```
 
 On CPU-only systems, the benchmark writes `availability.json`, `benchmark_results.json`, and `benchmark_results.csv`, runs the CPU timing if MuJoCo is installed, and records MuJoCo Warp as skipped unless `--require-warp` is passed. The original generated MJCF is preserved under `model/original_model.xml`; any benchmark-local compatibility copy is written as `model/warp_model.xml` with rewrites recorded in the JSON output.
+
+Optional local GPU smoke tests must be explicitly enabled and are only for import/device sanity. Laptop GPU timings, especially on weak GPUs such as MX350, should not be interpreted as H100-class throughput:
+
+```bash
+RUN_GPU_TESTS=1 python3 -m pytest -q -m gpu
+```
 
 Capella is the recommended PR10 GPU smoke target:
 
@@ -416,7 +425,8 @@ python3 scripts/merge_multifidelity_results.py \
 ## Tests
 
 ```bash
-pytest
+python3 -m pip install -e ".[test]"
+python3 -m pytest -q -m "not gpu and not slow"
 ```
 
 Tests cover design-space bounds, deterministic JSON round trips, MJCF loadability when MuJoCo is installed, wrench-score bounds, and robust result collection from partial or failed batch outputs.
@@ -437,7 +447,8 @@ handcdo_mujoco/
 
 - No Isaac Sim integration.
 - No ROS dependency.
-- No GPU-only libraries.
+- No GPU-only libraries are required by the default installation or default test suite.
+- Optional MuJoCo Warp support is benchmark-only and not a production backend.
 - No real robot control, fabrication, OptiTrack, or physical validation.
 - Primitive hammer, spoon, and knife models are placeholders for simulation infrastructure tests.
 - Hybrid tool geometry supports optional visual/collision meshes while preserving primitive fallback and the default primitive path.
