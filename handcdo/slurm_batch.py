@@ -45,6 +45,7 @@ def evaluate_task(
     eval_config = EvaluationConfig.from_dict(config_data)
     geometry_config = GeometryConfig.from_dict(config_data)
     n_grasp_trials = int(config_data.get("grasp", {}).get("n_trials", 4))
+    sampler = str(config_data.get("grasp", {}).get("sampler", "tpe"))
     design_files = sorted(design_dir.glob("*/design.json"))
     start = task_id * designs_per_task
     selected = design_files[start : start + designs_per_task]
@@ -61,6 +62,7 @@ def evaluate_task(
                 seed=seed + task_id * 10000 + offset,
                 config=eval_config,
                 geometry_config=geometry_config,
+                sampler=sampler,
             )
         except Exception as exc:
             LOGGER.exception("Failed design file %s", design_file)

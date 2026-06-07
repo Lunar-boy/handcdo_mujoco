@@ -13,6 +13,9 @@ def flatten_result(payload: dict[str, Any]) -> dict[str, Any]:
         "failed": payload.get("failed", False),
         "error": payload.get("error"),
     }
+    for field in ("fidelity", "backend", "config_path", "n_grasp_trials", "sampler", "seed"):
+        if field in payload:
+            row[field] = payload.get(field)
     row.update(payload.get("parameters") or {})
     for tool_result in payload.get("tool_results", []):
         tool = tool_result.get("tool")
