@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.4"]
+warp = ["mujoco-warp"]
 
 [tool.setuptools.packages.find]
 include = ["handcdo*"]
@@ -30,3 +31,10 @@ include = ["handcdo*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "gpu: requires CUDA-capable GPU and optional MuJoCo Warp dependencies",
+  "slow: long-running benchmark or sweep",
+  "slurm: intended to run inside a Slurm allocation",
+  "capella: intended for Capella GPU validation",
+  "alpha: intended for Alpha GPU validation",
+]

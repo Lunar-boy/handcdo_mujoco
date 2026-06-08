@@ -1,10 +1,10 @@
 # handcdo_mujoco
 
-`handcdo_mujoco` is a CPU-only MuJoCo reproduction of the optimization infrastructure from “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
+`handcdo_mujoco` is a MuJoCo reproduction of the optimization infrastructure from “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
 
-This is not an exact reproduction of the original hardware, unpublished hand generator, Isaac Sim pipeline, UR5e setup, OptiTrack evaluation, or physical fabrication workflow. Those parts are intentionally out of scope. The goal here is a robust research codebase for parametric hand design sampling, primitive MJCF generation, MuJoCo grasp/wrench evaluation, TPE optimization, Slurm array execution, result collection, and Random Forest plus SHAP parameter analysis.
+This is not an exact reproduction of the original hardware, unpublished hand generator, Isaac Sim pipeline, OptiTrack evaluation, or physical fabrication workflow. Those parts are intentionally out of scope. The goal here is a robust research codebase for parametric hand design sampling, primitive MJCF generation, MuJoCo grasp/wrench evaluation, TPE optimization, Slurm array execution, result collection, and Random Forest plus SHAP parameter analysis.
 
-The evaluation score is an approximation of the paper’s simulation-based wrench stability score. Geometry is deliberately simplified and uses MuJoCo primitives so the workflow can run on CPU HPC nodes. The code is structured so more accurate meshes, real deformation kernels, MJX/JAX, or GPU simulation can be added later.
+The evaluation score is an approximation of the paper’s simulation-based wrench stability score. Geometry is deliberately simplified and uses MuJoCo primitives so the workflow can run on CPU HPC nodes. The code is structured so more accurate meshes, real deformation kernels, Mujoco Wrap or GPU simulation can be added later.
 
 Tool geometry defaults to the original primitive hammer, spoon, and knife models. Optional `tool.mode: hybrid` configuration can add separate visual and collision meshes from `assets/tools/<tool_name>/`; when assets are missing it logs a warning and falls back to primitives without changing optimization semantics. Collision meshes should be convex or low-complexity for stable MuJoCo contact. This infrastructure does not perform convex decomposition. See [docs/tool_geometry.md](docs/tool_geometry.md).
 
@@ -104,6 +104,60 @@ python3 scripts/compare_benchmarks.py \
   --right outputs/smoke_baseline/results.csv \
   --output-dir outputs/smoke_baseline_compare
 ```
+
+## Optional MuJoCo Warp benchmark
+
+The repository remains CPU-only by default. MuJoCo Warp is an optional benchmark-only dependency for GPU compatibility and throughput diagnostics; it is not a production backend and does not replace CPU MuJoCo scoring. The benchmark does not compute grasp scores or prove score equivalence.
+
+Install the optional package only in environments where you want to run the GPU diagnostics:
+
+```bash
+python3 -m pip install -e ".[warp]"
+```
+
+Default tests do not require CUDA, Slurm, MuJoCo Warp, JAX, MJX, or H100:
+
+```bash
+python3 -m pip install -e ".[test]"
+python3 -m pytest -q -m "not gpu and not slow"
+
+python3 scripts/benchmark_mujoco_warp.py --help
+
+python3 scripts/benchmark_mujoco_warp.py \
+  --output-dir outputs/mujoco_warp_local_cpu_smoke \
+  --config configs/eval_fast.yaml \
+  --tool hammer \
+  --steps 5 \
+  --warmup-steps 1 \
+  --cpu-repeats 1 \
+  --warp-repeats 1 \
+  --nworld 2 \
+  --overwrite
+```
+
+On CPU-only systems, the benchmark writes `availability.json`, `benchmark_results.json`, and `benchmark_results.csv`, runs the CPU timing if MuJoCo is installed, and records MuJoCo Warp as skipped unless `--require-warp` is passed. The original generated MJCF is preserved under `model/original_model.xml`; any benchmark-local compatibility copy is written as `model/warp_model.xml` with rewrites recorded in the JSON output.
+
+The benchmark-local `warp_model.xml` may rewrite CPU-MuJoCo settings that are unsupported by MuJoCo Warp. Current compatibility rewrites include `option.integrator="implicitfast"` to `Euler` and non-zero geom/contact-pair margins to `0` for MuJoCo Warp MULTICCD compatibility. These rewrites do not change the default CPU MuJoCo generator or scoring path.
+
+Optional local GPU smoke tests must be explicitly enabled and are only for import/device sanity. Laptop GPU timings, especially on weak GPUs such as MX350, should not be interpreted as H100-class throughput:
+
+```bash
+RUN_GPU_TESTS=1 python3 -m pytest -q -m gpu
+```
+
+Capella is the recommended PR10 GPU smoke target:
+
+```bash
+sbatch slurm/mujoco_warp_capella_smoke.sbatch
+```
+
+Alpha is reserved for heavier optional sweeps or later batched-backend experiments:
+
+```bash
+sbatch slurm/mujoco_warp_alpha_sweep.sbatch
+```
+
+Do not treat these diagnostics as physical validation, H100 correctness, or speedup evidence unless the corresponding GPU-node benchmark logs were actually produced and reported.
 
 ## SHAP Analysis
 
@@ -373,7 +427,8 @@ python3 scripts/merge_multifidelity_results.py \
 ## Tests
 
 ```bash
-pytest
+python3 -m pip install -e ".[test]"
+python3 -m pytest -q -m "not gpu and not slow"
 ```
 
 Tests cover design-space bounds, deterministic JSON round trips, MJCF loadability when MuJoCo is installed, wrench-score bounds, and robust result collection from partial or failed batch outputs.
@@ -394,7 +449,8 @@ handcdo_mujoco/
 
 - No Isaac Sim integration.
 - No ROS dependency.
-- No GPU-only libraries.
+- No GPU-only libraries are required by the default installation or default test suite.
+- Optional MuJoCo Warp support is benchmark-only and not a production backend.
 - No real robot control, fabrication, OptiTrack, or physical validation.
 - Primitive hammer, spoon, and knife models are placeholders for simulation infrastructure tests.
 - Hybrid tool geometry supports optional visual/collision meshes while preserving primitive fallback and the default primitive path.
