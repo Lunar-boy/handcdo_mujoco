@@ -132,15 +132,66 @@ def test_mjcf_rewrite_records_integrator_change(tmp_path):
     ]
 
 
+def test_prepare_warp_compatible_mjcf_rewrites_nonzero_margins(tmp_path):
+    original = tmp_path / "original.xml"
+    rewritten = tmp_path / "warp.xml"
+    original.write_text(
+        """<mujoco model="test">
+  <option integrator="implicitfast"/>
+  <default>
+    <geom margin="0.001" solref="0.012 1"/>
+  </default>
+  <worldbody>
+    <body name="body">
+      <geom name="g1" type="box" size="0.1 0.1 0.1" margin="0.002"/>
+      <geom name="g2" type="box" size="0.1 0.1 0.1" margin="0"/>
+      <geom name="g3" type="box" size="0.1 0.1 0.1"/>
+    </body>
+  </worldbody>
+  <contact>
+    <pair geom1="g1" geom2="g2" margin="0.003"/>
+  </contact>
+</mujoco>
+""",
+        encoding="utf-8",
+    )
+
+    result = prepare_warp_compatible_mjcf(original, rewritten, allow_rewrite=True)
+
+    text = rewritten.read_text(encoding="utf-8")
+    assert 'integrator="Euler"' in text
+    assert 'margin="0.001"' not in text
+    assert 'margin="0.002"' not in text
+    assert 'margin="0.003"' not in text
+    assert 'margin="0"' in text
+    assert "margin=" in text
+
+    rewrites = result["mjcf_rewrites"]
+    assert any(rewrite["field"] == "option.integrator" for rewrite in rewrites)
+    assert any(rewrite["field"] == "geom.margin" and rewrite["old"] == "0.001" for rewrite in rewrites)
+    assert any(
+        rewrite["field"] == "geom.margin" and rewrite["name"] == "g1" and rewrite["old"] == "0.002"
+        for rewrite in rewrites
+    )
+    assert any(
+        rewrite["field"] == "pair.margin"
+        and rewrite["geom1"] == "g1"
+        and rewrite["geom2"] == "g2"
+        and rewrite["old"] == "0.003"
+        for rewrite in rewrites
+    )
+
+
 def test_mjcf_rewrite_can_be_disabled(tmp_path):
     original = tmp_path / "original.xml"
     rewritten = tmp_path / "warp.xml"
-    text = '<mujoco model="x"><option integrator="implicitfast" timestep="0.002" /></mujoco>'
+    text = '<mujoco model="x"><option integrator="implicitfast" timestep="0.002" /><default><geom margin="0.001" /></default></mujoco>'
     original.write_text(text, encoding="utf-8")
 
     result = prepare_warp_compatible_mjcf(original, rewritten, allow_rewrite=False)
 
     assert rewritten.read_text(encoding="utf-8") == text
+    assert 'margin="0.001"' in rewritten.read_text(encoding="utf-8")
     assert result["mjcf_rewrites"] == []
     assert result["mjcf_files_differ"] is False
 

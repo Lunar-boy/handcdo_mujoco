@@ -214,6 +214,63 @@ def _select_design(config: WarpBenchmarkConfig) -> HandDesign:
     return space.sample(seed=config.seed)
 
 
+def _first_float(text: str) -> float | None:
+    parts = text.split()
+    if not parts:
+        return None
+    try:
+        return float(parts[0])
+    except ValueError:
+        return None
+
+
+def _rewrite_nonzero_margins_for_warp(root: ET.Element) -> list[dict[str, Any]]:
+    rewrites: list[dict[str, Any]] = []
+    reason = "benchmark-local MuJoCo Warp MULTICCD compatibility"
+
+    for geom in root.findall(".//geom"):
+        old = geom.get("margin")
+        if old is None:
+            continue
+        value = _first_float(old)
+        if value is None or value == 0.0:
+            continue
+        geom.set("margin", "0")
+        rewrites.append(
+            {
+                "field": "geom.margin",
+                "element": "geom",
+                "name": geom.get("name"),
+                "old": old,
+                "new": "0",
+                "reason": reason,
+            }
+        )
+
+    for pair in root.findall(".//pair"):
+        old = pair.get("margin")
+        if old is None:
+            continue
+        value = _first_float(old)
+        if value is None or value == 0.0:
+            continue
+        pair.set("margin", "0")
+        rewrites.append(
+            {
+                "field": "pair.margin",
+                "element": "pair",
+                "name": pair.get("name"),
+                "geom1": pair.get("geom1"),
+                "geom2": pair.get("geom2"),
+                "old": old,
+                "new": "0",
+                "reason": reason,
+            }
+        )
+
+    return rewrites
+
+
 def prepare_warp_compatible_mjcf(
     original_mjcf_path: str | Path,
     output_path: str | Path,
@@ -224,7 +281,7 @@ def prepare_warp_compatible_mjcf(
     ensure_dir(output_path.parent)
     tree = ET.parse(original_mjcf_path)
     root = tree.getroot()
-    rewrites: list[dict[str, str]] = []
+    rewrites: list[dict[str, Any]] = []
     if allow_rewrite:
         option = root.find("option")
         if option is not None and option.get("integrator") == "implicitfast":
@@ -237,6 +294,7 @@ def prepare_warp_compatible_mjcf(
                     "reason": "benchmark-local MuJoCo Warp compatibility",
                 }
             )
+        rewrites.extend(_rewrite_nonzero_margins_for_warp(root))
     if rewrites:
         tree.write(output_path, encoding="unicode", xml_declaration=False)
     else:

@@ -137,6 +137,8 @@ python3 scripts/benchmark_mujoco_warp.py \
 
 On CPU-only systems, the benchmark writes `availability.json`, `benchmark_results.json`, and `benchmark_results.csv`, runs the CPU timing if MuJoCo is installed, and records MuJoCo Warp as skipped unless `--require-warp` is passed. The original generated MJCF is preserved under `model/original_model.xml`; any benchmark-local compatibility copy is written as `model/warp_model.xml` with rewrites recorded in the JSON output.
 
+The benchmark-local `warp_model.xml` may rewrite CPU-MuJoCo settings that are unsupported by MuJoCo Warp. Current compatibility rewrites include `option.integrator="implicitfast"` to `Euler` and non-zero geom/contact-pair margins to `0` for MuJoCo Warp MULTICCD compatibility. These rewrites do not change the default CPU MuJoCo generator or scoring path.
+
 Optional local GPU smoke tests must be explicitly enabled and are only for import/device sanity. Laptop GPU timings, especially on weak GPUs such as MX350, should not be interpreted as H100-class throughput:
 
 ```bash
