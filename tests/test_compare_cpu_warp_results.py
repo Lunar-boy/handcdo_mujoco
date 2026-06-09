@@ -82,6 +82,8 @@ def test_empty_directories_produce_controlled_summary(tmp_path):
     assert summary["num_matched_designs"] == 0
     assert summary["overall"]["mean_abs_score_diff"] is None
     assert summary["overall"]["top_k_overlap"] is None
+    assert summary["overall"]["top_k_cpu_recall_in_warp"] is None
+    assert summary["overall"]["rank_sign_flip_count"] == 0
     assert any("Fewer than 3 matched" in warning for warning in summary["warnings"])
 
 
@@ -99,9 +101,14 @@ def test_matched_fake_jsons_produce_expected_score_difference_and_output(tmp_pat
     assert exit_code == 0
     assert summary["overall"]["mean_abs_score_diff"] == 0.25
     assert summary["overall"]["max_abs_score_diff"] == 0.25
+    assert "top_k_cpu_recall_in_warp" in summary["overall"]
+    assert "rank_sign_flip_count" in summary["overall"]
     assert summary["by_design"][0]["signed_score_diff"] == 0.25
     assert summary["by_tool"]["hammer"]["failure_count_diff"] == 1
-    assert json.loads(out.read_text(encoding="utf-8")) == summary
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "top_k_cpu_recall_in_warp" in payload["overall"]
+    assert "rank_sign_flip_count" in payload["overall"]
+    assert payload == summary
 
 
 def test_missing_designs_are_reported_in_each_direction(tmp_path):
@@ -188,6 +195,27 @@ def test_fail_thresholds_use_max_score_diff_and_max_rank_displacement(tmp_path):
     assert summary["overall"]["max_abs_score_diff"] == 2.0
     assert summary["overall"]["max_abs_rank_displacement"] == 2.0
     assert exit_code == 1
+
+
+def test_top_k_cpu_recall_and_rank_sign_flip_count_use_rank_semantics(tmp_path):
+    cpu_dir = tmp_path / "cpu"
+    warp_dir = tmp_path / "warp"
+    cpu_dir.mkdir()
+    warp_dir.mkdir()
+    write_json(cpu_dir / "a.json", _cpu_payload("a", 0.9))
+    write_json(cpu_dir / "b.json", _cpu_payload("b", 0.8))
+    write_json(cpu_dir / "c.json", _cpu_payload("c", 0.7))
+    write_json(warp_dir / "a.mujoco_warp.experimental.json", _warp_payload("a", 0.10))
+    write_json(warp_dir / "b.mujoco_warp.experimental.json", _warp_payload("b", 0.95))
+    write_json(warp_dir / "c.mujoco_warp.experimental.json", _warp_payload("c", 0.85))
+
+    summary, exit_code = compare_cpu_warp_results(cpu_dir, warp_dir, top_k=2)
+
+    assert exit_code == 0
+    overall = summary["overall"]
+    assert overall["top_k_overlap"]["overlap_ratio"] == 0.5
+    assert overall["top_k_cpu_recall_in_warp"] == 0.5
+    assert overall["rank_sign_flip_count"] == 2
 
 
 def test_subprocess_help_does_not_require_mujoco_warp():

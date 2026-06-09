@@ -291,6 +291,8 @@ def _overall_metrics(rows: list[dict[str, Any]], *, top_k: int, warnings: list[s
         "rank_spearman": _spearman(rank_pairs),
         "rank_kendall": _kendall(rank_pairs),
         "top_k_overlap": _top_k_overlap(rows, top_k),
+        "top_k_cpu_recall_in_warp": _top_k_cpu_recall_in_warp(rows, top_k),
+        "rank_sign_flip_count": _rank_sign_flip_count(rows),
         "mean_abs_rank_displacement": _mean(rank_displacements),
         "max_abs_rank_displacement": max(rank_displacements) if rank_displacements else None,
     }
@@ -435,6 +437,42 @@ def _top_k_overlap(rows: list[dict[str, Any]], top_k: int) -> dict[str, Any] | N
         "overlap_ratio": len(overlap) / effective_k,
         "design_ids": overlap,
     }
+
+
+def _top_k_cpu_recall_in_warp(rows: list[dict[str, Any]], top_k: int) -> float | None:
+    if top_k <= 0:
+        return None
+    ranked_cpu = sorted(
+        [row for row in rows if row["cpu_rank"] is not None],
+        key=lambda row: (row["cpu_rank"], str(row["design_id"])),
+    )
+    ranked_warp = sorted(
+        [row for row in rows if row["warp_rank"] is not None],
+        key=lambda row: (row["warp_rank"], str(row["design_id"])),
+    )
+    cpu_top = {row["design_id"] for row in ranked_cpu[:top_k]}
+    warp_top = {row["design_id"] for row in ranked_warp[:top_k]}
+    if not cpu_top:
+        return None
+    return len(cpu_top & warp_top) / len(cpu_top)
+
+
+def _rank_sign_flip_count(rows: list[dict[str, Any]]) -> int:
+    ranked = [
+        row
+        for row in rows
+        if row["cpu_rank"] is not None and row["warp_rank"] is not None
+    ]
+    flips = 0
+    for i in range(len(ranked)):
+        for j in range(i + 1, len(ranked)):
+            cpu_delta = ranked[i]["cpu_rank"] - ranked[j]["cpu_rank"]
+            warp_delta = ranked[i]["warp_rank"] - ranked[j]["warp_rank"]
+            if cpu_delta == 0 or warp_delta == 0:
+                continue
+            if cpu_delta * warp_delta < 0:
+                flips += 1
+    return flips
 
 
 def _spearman(pairs: list[tuple[float, float]]) -> float | None:
