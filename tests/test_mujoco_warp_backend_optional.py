@@ -2,11 +2,30 @@ from __future__ import annotations
 
 import importlib
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 from handcdo.backends.batched import supports_batched_grasps
+from handcdo.grasp_sampling import GraspParams
+from handcdo.mujoco_eval import GraspEvaluation
 from handcdo.warp_utils import WarpAvailability
+
+
+def _grasp(**overrides):
+    values = {
+        "dx": 0.0,
+        "dy": 0.0,
+        "dz": 0.0,
+        "yaw": 0.0,
+        "pitch": 0.0,
+        "roll": 0.0,
+        "closure": 0.5,
+        "thumb_closure": 0.5,
+        "spread_bias": 0.0,
+    }
+    values.update(overrides)
+    return GraspParams(**values)
 
 
 def test_importing_backends_does_not_import_mujoco_warp_package():
@@ -121,7 +140,7 @@ def test_supports_batched_grasps_true_for_mujoco_warp_skeleton_when_available(mo
     assert supports_batched_grasps(backend) is True
 
 
-def test_mujoco_warp_skeleton_evaluation_methods_are_not_implemented(monkeypatch):
+def test_mujoco_warp_single_evaluation_is_not_implemented(monkeypatch):
     from handcdo import warp_utils
     from handcdo.backends.mujoco_warp import MujocoWarpBackend
 
@@ -133,7 +152,113 @@ def test_mujoco_warp_skeleton_evaluation_methods_are_not_implemented(monkeypatch
 
     backend = MujocoWarpBackend()
 
-    with pytest.raises(NotImplementedError, match="not implemented in PR11-b"):
+    with pytest.raises(NotImplementedError, match="Single-grasp MuJoCo Warp evaluation"):
         backend.evaluate_grasp(None, "hammer", None, None)
-    with pytest.raises(NotImplementedError, match="not implemented in PR11-b"):
-        backend.evaluate_grasps_batch(None, "hammer", [], None)
+
+
+def test_empty_batch_returns_empty_with_conservative_metadata(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(
+        warp_utils,
+        "check_warp_available",
+        lambda: WarpAvailability(True, None, "mujoco_warp", "test"),
+    )
+
+    backend = MujocoWarpBackend(nworld=8)
+
+    assert backend.evaluate_grasps_batch(None, "hammer", [], None) == []
+    assert backend.last_batch_metadata["backend"] == "mujoco_warp"
+    assert backend.last_batch_metadata["experimental"] is True
+    assert backend.last_batch_metadata["score_semantics"] == "experimental_non_equivalent"
+    assert backend.last_batch_metadata["num_grasps"] == 0
+    assert backend.last_batch_metadata["num_chunks"] == 0
+    assert backend.last_batch_metadata["sequential_fallback"] is False
+
+
+def test_batch_refuses_when_true_per_world_initialization_is_unavailable(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(
+        warp_utils,
+        "check_warp_available",
+        lambda: WarpAvailability(True, None, "mujoco_warp", "test"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "mujoco_warp",
+        SimpleNamespace(put_model=object(), make_data=object(), step=object()),
+    )
+
+    backend = MujocoWarpBackend(nworld=2)
+    grasps = [_grasp(), _grasp(dx=0.01), _grasp(dy=0.01)]
+
+    with pytest.raises(NotImplementedError, match="refusing to report fake batched scores"):
+        backend.evaluate_grasps_batch(None, "hammer", grasps, None)
+
+    metadata = backend.last_batch_metadata
+    assert metadata["score_semantics"] == "experimental_non_equivalent"
+    assert metadata["failure_count"] == 3
+    assert metadata["num_chunks"] == 2
+    assert metadata["sequential_fallback"] is False
+    assert metadata["warp_capabilities"]["supports_true_fixed_grasp_batching"] is False
+
+
+def test_batch_default_does_not_silently_call_cpu_evaluate_grasp(monkeypatch):
+    from handcdo import mujoco_eval, warp_utils
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(
+        warp_utils,
+        "check_warp_available",
+        lambda: WarpAvailability(True, None, "mujoco_warp", "test"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "mujoco_warp",
+        SimpleNamespace(put_model=object(), make_data=object(), step=object()),
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("CPU evaluate_grasp must not be called by default")
+
+    monkeypatch.setattr(mujoco_eval, "evaluate_grasp", fail_if_called)
+
+    backend = MujocoWarpBackend()
+    with pytest.raises(NotImplementedError):
+        backend.evaluate_grasps_batch(None, "hammer", [_grasp()], None)
+
+
+def test_sequential_fallback_is_explicit_and_labeled(monkeypatch):
+    from handcdo import mujoco_eval, warp_utils
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(
+        warp_utils,
+        "check_warp_available",
+        lambda: WarpAvailability(True, None, "mujoco_warp", "test"),
+    )
+
+    def fake_evaluate_grasp(design, tool_name, grasp, config, geometry_config=None, tool_assets_dir="assets/tools"):
+        return GraspEvaluation(
+            design_id=design.design_id,
+            tool=tool_name,
+            grasp=grasp.to_dict(),
+            score=0.5,
+            wrench_results=[],
+        )
+
+    monkeypatch.setattr(mujoco_eval, "evaluate_grasp", fake_evaluate_grasp)
+
+    design = SimpleNamespace(design_id="debug-design")
+    grasps = [_grasp(), _grasp(dx=0.01)]
+    backend = MujocoWarpBackend(allow_sequential_fallback=True)
+
+    evaluations = backend.evaluate_grasps_batch(design, "hammer", grasps, None)
+
+    assert [evaluation.score for evaluation in evaluations] == [0.5, 0.5]
+    assert backend.last_batch_metadata["score_semantics"] == "experimental_sequential_fallback"
+    assert backend.last_batch_metadata["sequential_fallback"] is True
+    assert backend.last_batch_metadata["failure_count"] == 0
