@@ -159,6 +159,35 @@ sbatch slurm/mujoco_warp_alpha_sweep.sbatch
 
 Do not treat these diagnostics as physical validation, H100 correctness, or speedup evidence unless the corresponding GPU-node benchmark logs were actually produced and reported.
 
+## Experimental MuJoCo Warp batch evaluation
+
+The dedicated MuJoCo Warp batch evaluator is optional and experimental. It is intended for NVIDIA GPU throughput experiments, especially H100-class systems, and is most useful for fixed random-grasp batch evaluation. It is not the default backend: CPU MuJoCo remains the reference implementation for scoring and scientific reporting.
+
+Warp scores from this CLI are marked as `experimental_non_equivalent` and should not be used as final scientific conclusions until CPU-vs-Warp comparisons are stable. Default installation and tests remain CPU-only.
+
+Install the normal test dependencies first, then add the optional Warp extra only in environments where you want to run Warp experiments:
+
+```bash
+python3 -m pip install -e ".[test]"
+python3 -m pip install -e ".[warp]"
+```
+
+Smoke example:
+
+```bash
+python3 scripts/evaluate_design_batch_warp.py \
+  --design-dir outputs/designs \
+  --results-dir outputs/warp_results_smoke \
+  --config configs/eval_fast.yaml \
+  --tools hammer \
+  --n-grasp-trials 8 \
+  --sampler random \
+  --nworld 8 \
+  --seed 0
+```
+
+The CLI writes one experimental JSON file per design, using filenames such as `<design_id>.mujoco_warp.experimental.json`. It refuses to overwrite existing result files unless `--overwrite` is passed. Do not claim speedup from this path unless measured on the target GPU node and reported with the corresponding logs.
+
 ## SHAP Analysis
 
 ```bash
