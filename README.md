@@ -188,6 +188,23 @@ python3 scripts/evaluate_design_batch_warp.py \
 
 The CLI writes one experimental JSON file per design, using filenames such as `<design_id>.mujoco_warp.experimental.json`, and each payload includes `"include_in_multifidelity": false`. It refuses to overwrite existing result files unless `--overwrite` is passed. It also refuses to write into a directory that already contains CPU-style result JSON files; pass `--allow-mixed-backend-dir` only when intentionally colocating experimental Warp and CPU outputs. Do not claim speedup from this path unless measured on the target GPU node and reported with the corresponding logs.
 
+## Comparing CPU and MuJoCo Warp results
+
+CPU MuJoCo remains the reference backend for scoring and scientific reporting. MuJoCo Warp results from the experimental batch evaluator are not final scientific conclusions and are marked with `score_semantics="experimental_non_equivalent"`.
+
+Use the comparison helper to inspect score differences, rank drift, missing designs, missing tools, failed trials, backend metadata warnings, and available timing metadata before making any claim about score agreement:
+
+```bash
+python3 scripts/compare_cpu_warp_results.py \
+  --cpu-results-dir outputs/results \
+  --warp-results-dir outputs/warp_results \
+  --out outputs/warp_cpu_comparison.json
+```
+
+The helper is CPU-only and import-safe; it does not import `mujoco_warp`. It tolerates partial overlap between CPU and Warp result directories and writes warnings when Warp JSONs are missing `experimental=true`, missing `score_semantics`, claim `intended_cpu_equivalent`, or report a backend other than `mujoco_warp`.
+
+Warp can be useful for throughput exploration on H100-class systems, but any claimed speedup must include the hardware, `nworld`, `nconmax`, `njmax`, number of grasps, timing method, and the GPU-node logs used to produce the measurement. Any claimed score agreement must be backed by `compare_cpu_warp_results.py` output.
+
 ## SHAP Analysis
 
 ```bash
