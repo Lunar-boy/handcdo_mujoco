@@ -22,12 +22,12 @@ Therefore, this PR11 sequence is split into six stages:
 
 | Stage | File | Purpose | Test |
 |---|---|---|---|
-| PR11-a | `11a-warp-utils-batched-protocol.md` | Add batched protocol and reusable Warp utility extraction only | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
-| PR11-b | `11b-lazy-mujoco-warp-backend-skeleton.md` | Add lazy experimental backend skeleton and registry alias | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
-| PR11-c | `11c-fixed-random-grasp-batch-orchestration.md` | Add deterministic fixed-grasp batch orchestration with dummy/CPU-testable backend | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
-| PR11-d | `11d-minimal-experimental-warp-backend.md` | Implement minimal true experimental MuJoCo Warp batch backend | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
-| PR11-e | `11e-experimental-warp-batch-cli.md` | Add dedicated experimental CLI and JSON output schema | pytest -q python3 scripts/benchmark_mujoco_warp.py --help python3 scripts/evaluate_design_batch_warp.py --help |
-| PR11-f | `11f-cpu-warp-comparison-docs-validation.md` | Add CPU-vs-Warp comparison, docs, and optional GPU validation | pytest -q python3 scripts/benchmark_mujoco_warp.py --help python3 scripts/evaluate_design_batch_warp.py --help |
+| PR11-a | `11a-warp-utils-batched-protocol.md` | Add batched protocol and reusable Warp utility extraction only | pytest -q &&python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-b | `11b-lazy-mujoco-warp-backend-skeleton.md` | Add lazy experimental backend skeleton and registry alias | pytest -q && python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-c | `11c-fixed-random-grasp-batch-orchestration.md` | Add deterministic fixed-grasp batch orchestration with dummy/CPU-testable backend | pytest -q && python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-d | `11d-minimal-experimental-warp-backend.md` | Implement minimal true experimental MuJoCo Warp batch backend | pytest -q &&python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-e | `11e-experimental-warp-batch-cli.md` | Add dedicated experimental CLI and JSON output schema | pytest -q && python3 scripts/benchmark_mujoco_warp.py --help && python3 scripts/evaluate_design_batch_warp.py --help |
+| PR11-f | `11f-cpu-warp-comparison-docs-validation.md` | Add CPU-vs-Warp comparison, docs, and optional GPU validation | pytest -q && python3 scripts/benchmark_mujoco_warp.py --help && python3 scripts/evaluate_design_batch_warp.py --help |
 
 ## Global semantic rules
 
