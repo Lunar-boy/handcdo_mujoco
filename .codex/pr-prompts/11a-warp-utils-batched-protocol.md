@@ -202,3 +202,9 @@ This stage is successful if:
 2. Reusable Warp helper logic is available without optional dependency import failures.
 3. PR10 benchmark behavior remains intact.
 4. `pytest -q` passes in a CPU-only environment.
+
+
+
+## Additional guardrail:
+- If `handcdo/warp_utils.py` is added, keep public helper names stable and do not make later PRs depend on private benchmark helpers such as `_make_warp_data()` or `_synchronize()`.
+- Add a regression test that PR10 benchmark CSV columns remain unchanged after utility extraction.

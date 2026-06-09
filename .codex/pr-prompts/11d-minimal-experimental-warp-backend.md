@@ -279,3 +279,20 @@ This stage is successful if:
 3. All Warp results are marked experimental and non-equivalent.
 4. CPU-only tests pass without GPU dependencies.
 5. Existing CPU workflows remain unchanged.
+
+
+## Mandatory capability probe:
+Even if the backend cannot safely implement real per-world grasp initialization, this PR must add a small import-safe capability helper, for example:
+
+`probe_mujoco_warp_capabilities() -> dict`
+
+When `mujoco_warp` is available, it should report:
+- whether `put_model` exists;
+- whether `put_data` or `make_data` exists;
+- accepted data allocation kwargs discovered by guarded calls;
+- whether `step` exists;
+- whether per-world qpos/qvel/ctrl/xfrc assignment appears accessible;
+- the exact reason why true per-world fixed-grasp initialization is or is not supported.
+
+Do not invent APIs. Use guarded runtime introspection and catch exceptions.
+The refusal path must include this capability report in the error metadata or logs.

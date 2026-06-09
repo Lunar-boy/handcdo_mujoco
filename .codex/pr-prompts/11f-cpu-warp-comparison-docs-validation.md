@@ -257,3 +257,7 @@ This stage is successful if:
 3. It detects missing results, score drift, rank drift, and unsafe metadata.
 4. Documentation clearly prevents overclaiming.
 5. `pytest -q` passes without GPU dependencies.
+
+## Additional comparison metrics:
+- `top_k_cpu_recall_in_warp`: among CPU top-k designs, fraction also present in Warp top-k.
+- `rank_sign_flip_count`: number of matched design pairs whose relative ordering differs between CPU and Warp, computed on a sampled or top-k subset if full pairwise comparison is too expensive.
