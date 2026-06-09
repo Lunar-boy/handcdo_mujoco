@@ -89,6 +89,7 @@ def test_missing_warp_writes_skipped_experimental_result(tmp_path, monkeypatch):
     assert payload["failed"] is True
     assert payload["backend"] == "mujoco_warp"
     assert payload["experimental"] is True
+    assert payload["include_in_multifidelity"] is False
     assert payload["score_semantics"] == "experimental_non_equivalent"
     assert "python3 -m pip install -e" in payload["error"]
     assert payload["warp_availability"]["warp_available"] is False
@@ -129,6 +130,83 @@ def test_refuses_to_overwrite_existing_results_without_flag(tmp_path, monkeypatc
 
     with pytest.raises(FileExistsError, match="--overwrite"):
         module.run(args)
+
+
+def test_cpu_style_json_in_results_dir_fails_by_default_without_writing(tmp_path, monkeypatch):
+    design = _write_design(tmp_path)
+    module = _load_script()
+    results_dir = tmp_path / "warp_results"
+    results_dir.mkdir()
+    (results_dir / "design_0001.json").write_text("{}", encoding="utf-8")
+    args = _args(module, tmp_path)
+
+    with pytest.raises(FileExistsError) as exc_info:
+        module.run(args)
+
+    message = str(exc_info.value)
+    assert "CPU result JSON" in message
+    assert "Experimental MuJoCo Warp results are intentionally separated" in message
+    assert "--allow-mixed-backend-dir" in message
+    assert not (results_dir / f"{design.design_id}.mujoco_warp.experimental.json").exists()
+
+
+def test_main_reports_mixed_backend_dir_error_before_writing(tmp_path, capsys):
+    design = _write_design(tmp_path)
+    module = _load_script()
+    results_dir = tmp_path / "warp_results"
+    results_dir.mkdir()
+    (results_dir / "design_0001.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main(
+            [
+                "--design-dir",
+                str(tmp_path / "designs"),
+                "--results-dir",
+                str(results_dir),
+                "--config",
+                "configs/eval_fast.yaml",
+                "--tools",
+                "hammer",
+                "--n-grasp-trials",
+                "2",
+            ]
+        )
+
+    assert exc_info.value.code == 1
+    assert "--allow-mixed-backend-dir" in capsys.readouterr().err
+    assert not (results_dir / f"{design.design_id}.mujoco_warp.experimental.json").exists()
+
+
+def test_allow_mixed_backend_dir_writes_skipped_result_next_to_cpu_style_json(tmp_path, monkeypatch):
+    design = _write_design(tmp_path)
+    module = _load_script()
+    results_dir = tmp_path / "warp_results"
+    results_dir.mkdir()
+    (results_dir / "design_0001.json").write_text("{}", encoding="utf-8")
+    args = _args(module, tmp_path, "--allow-mixed-backend-dir")
+    monkeypatch.setattr(
+        module,
+        "check_warp_available",
+        lambda: WarpAvailability(False, "missing for test", "mujoco_warp", None),
+    )
+
+    payload = module.run(args)[0]
+
+    assert payload["failed"] is True
+    assert payload["include_in_multifidelity"] is False
+    assert (results_dir / f"{design.design_id}.mujoco_warp.experimental.json").exists()
+
+
+def test_existing_warp_experimental_json_is_not_cpu_style_result(tmp_path):
+    module = _load_script()
+    results_dir = tmp_path / "warp_results"
+    results_dir.mkdir()
+    warp_result = results_dir / "other_design.mujoco_warp.experimental.json"
+    warp_result.write_text("{}", encoding="utf-8")
+
+    assert module._find_cpu_style_result_jsons(results_dir) == []
+    module._validate_results_dir_for_warp(results_dir, allow_mixed_backend_dir=False)
 
 
 def test_available_warp_path_uses_backend_and_writes_schema(tmp_path, monkeypatch):
@@ -185,6 +263,7 @@ def test_available_warp_path_uses_backend_and_writes_schema(tmp_path, monkeypatc
     payload = module.run(args)[0]
 
     assert payload["failed"] is False
+    assert payload["include_in_multifidelity"] is False
     assert payload["hand_score"] == 2.0
     assert payload["tool_results"][0]["tool"] == "hammer"
     assert payload["tool_results"][0]["best_score"] == 2.0

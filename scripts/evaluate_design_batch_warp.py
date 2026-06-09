@@ -25,6 +25,7 @@ from handcdo.warp_utils import availability_payload, check_warp_available
 BACKEND = "mujoco_warp"
 SCORE_SEMANTICS = "experimental_non_equivalent"
 INSTALL_HINT = 'python3 -m pip install -e ".[warp]"'
+WARP_RESULT_SUFFIX = ".mujoco_warp.experimental.json"
 
 
 def _positive_int(value: str) -> int:
@@ -74,6 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-warp", action="store_true", default=False)
     parser.add_argument("--overwrite", action="store_true", default=False)
     parser.add_argument("--fail-fast", action="store_true", default=False)
+    parser.add_argument(
+        "--allow-mixed-backend-dir",
+        action="store_true",
+        default=False,
+        help=(
+            "Allow writing experimental MuJoCo Warp JSON into a results directory "
+            "that appears to contain CPU result JSON files."
+        ),
+    )
     return parser
 
 
@@ -99,7 +109,25 @@ def collect_design_files(
 
 
 def result_path(results_dir: str | Path, design_id: str) -> Path:
-    return Path(results_dir) / f"{design_id}.mujoco_warp.experimental.json"
+    return Path(results_dir) / f"{design_id}{WARP_RESULT_SUFFIX}"
+
+
+def _find_cpu_style_result_jsons(results_dir: Path) -> list[Path]:
+    return sorted(path for path in results_dir.glob("*.json") if not path.name.endswith(WARP_RESULT_SUFFIX))
+
+
+def _validate_results_dir_for_warp(results_dir: Path, allow_mixed_backend_dir: bool) -> None:
+    cpu_like_jsons = _find_cpu_style_result_jsons(results_dir)
+    if cpu_like_jsons and not allow_mixed_backend_dir:
+        examples = ", ".join(str(path) for path in cpu_like_jsons[:5])
+        raise FileExistsError(
+            "Refusing to write experimental MuJoCo Warp results into a directory "
+            "that appears to contain CPU result JSON files. Experimental MuJoCo "
+            "Warp results are intentionally separated because they are not "
+            "CPU-equivalent and must not be mixed with CPU/multifidelity result "
+            "pools by accident. Pass --allow-mixed-backend-dir to override. "
+            f"Examples: {examples}"
+        )
 
 
 def _empty_metadata(args: argparse.Namespace, *, num_grasps: int, failure_count: int = 0) -> dict[str, Any]:
@@ -183,6 +211,7 @@ def _skipped_payload(
         "error": error,
         "backend": BACKEND,
         "experimental": True,
+        "include_in_multifidelity": False,
         "score_semantics": SCORE_SEMANTICS,
         "warp_metadata": _empty_metadata(args, num_grasps=num_grasps, failure_count=num_grasps),
         "warp_availability": availability,
@@ -268,6 +297,7 @@ def evaluate_design_warp(
         "failed": failed,
         "backend": BACKEND,
         "experimental": True,
+        "include_in_multifidelity": False,
         "score_semantics": SCORE_SEMANTICS,
         "warp_metadata": aggregate_metadata,
         "warp_availability": availability_json,
@@ -293,6 +323,7 @@ def run(args: argparse.Namespace) -> list[dict[str, Any]]:
         raise FileNotFoundError(f"No design JSON files found under {args.design_dir}")
 
     results_dir = ensure_dir(args.results_dir)
+    _validate_results_dir_for_warp(results_dir, args.allow_mixed_backend_dir)
     designs = [HandDesign.from_json(path) for path in design_files]
     existing = [result_path(results_dir, design.design_id) for design in designs if result_path(results_dir, design.design_id).exists()]
     if existing and not args.overwrite:
@@ -321,6 +352,7 @@ def run(args: argparse.Namespace) -> list[dict[str, Any]]:
                 "error": f"{type(exc).__name__}: {exc}",
                 "backend": BACKEND,
                 "experimental": True,
+                "include_in_multifidelity": False,
                 "score_semantics": SCORE_SEMANTICS,
                 "warp_metadata": _empty_metadata(
                     args,

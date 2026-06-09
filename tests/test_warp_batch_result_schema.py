@@ -27,6 +27,7 @@ def test_pr11e_top_level_warp_result_schema_is_explicitly_experimental():
         "failed": False,
         "backend": "mujoco_warp",
         "experimental": True,
+        "include_in_multifidelity": False,
         "score_semantics": "experimental_non_equivalent",
         "warp_metadata": {
             "nworld": 64,
@@ -49,6 +50,7 @@ def test_pr11e_top_level_warp_result_schema_is_explicitly_experimental():
 
     assert payload["backend"] == "mujoco_warp"
     assert payload["experimental"] is True
+    assert payload["include_in_multifidelity"] is False
     assert payload["score_semantics"] == "experimental_non_equivalent"
     assert payload["score_semantics"] != "intended_cpu_equivalent"
     assert payload["warp_metadata"] == {

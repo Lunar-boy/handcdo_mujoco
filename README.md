@@ -186,7 +186,7 @@ python3 scripts/evaluate_design_batch_warp.py \
   --seed 0
 ```
 
-The CLI writes one experimental JSON file per design, using filenames such as `<design_id>.mujoco_warp.experimental.json`. It refuses to overwrite existing result files unless `--overwrite` is passed. Do not claim speedup from this path unless measured on the target GPU node and reported with the corresponding logs.
+The CLI writes one experimental JSON file per design, using filenames such as `<design_id>.mujoco_warp.experimental.json`, and each payload includes `"include_in_multifidelity": false`. It refuses to overwrite existing result files unless `--overwrite` is passed. It also refuses to write into a directory that already contains CPU-style result JSON files; pass `--allow-mixed-backend-dir` only when intentionally colocating experimental Warp and CPU outputs. Do not claim speedup from this path unless measured on the target GPU node and reported with the corresponding logs.
 
 ## SHAP Analysis
 
