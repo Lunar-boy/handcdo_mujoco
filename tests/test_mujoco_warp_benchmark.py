@@ -196,8 +196,17 @@ def test_mjcf_rewrite_can_be_disabled(tmp_path):
     assert result["mjcf_files_differ"] is False
 
 
-def test_backend_registry_does_not_gain_warp_backend():
-    with pytest.raises(ValueError, match="Unknown simulator backend"):
+def test_backend_registry_exposes_warp_backend_lazily_when_requested(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends.mujoco_warp import MujocoWarpUnavailableError
+
+    monkeypatch.setattr(
+        warp_utils,
+        "check_warp_available",
+        lambda: WarpAvailability(False, "missing for test", "mujoco_warp", None),
+    )
+
+    with pytest.raises(MujocoWarpUnavailableError, match="optional warp extra"):
         get_backend("mujoco_warp")
 
 
