@@ -11,6 +11,67 @@ from handcdo.design_space import DesignSpace
 from handcdo.mujoco_eval import GraspEvaluation
 
 
+def test_pr11e_top_level_warp_result_schema_is_explicitly_experimental():
+    payload = {
+        "design_id": "design-a",
+        "parameters": {},
+        "hand_score": 0.0,
+        "tool_results": [
+            {
+                "tool": "hammer",
+                "best_score": 0.0,
+                "best_grasp": {},
+                "trials": [],
+            }
+        ],
+        "failed": False,
+        "backend": "mujoco_warp",
+        "experimental": True,
+        "include_in_multifidelity": False,
+        "score_semantics": "experimental_non_equivalent",
+        "warp_metadata": {
+            "nworld": 64,
+            "nconmax": 64,
+            "naconmax": None,
+            "njmax": 128,
+            "warmup_steps": 0,
+            "capture_graph": False,
+            "batch_size": 64,
+            "num_grasps": 128,
+            "num_chunks": 2,
+            "seconds_total": 0.0,
+            "grasps_per_second": None,
+            "world_steps_per_second": None,
+            "failure_count": 0,
+            "sequential_fallback": False,
+            "mjcf_rewrites": [],
+        },
+    }
+
+    assert payload["backend"] == "mujoco_warp"
+    assert payload["experimental"] is True
+    assert payload["include_in_multifidelity"] is False
+    assert payload["score_semantics"] == "experimental_non_equivalent"
+    assert payload["score_semantics"] != "intended_cpu_equivalent"
+    assert payload["warp_metadata"] == {
+        "nworld": 64,
+        "nconmax": 64,
+        "naconmax": None,
+        "njmax": 128,
+        "warmup_steps": 0,
+        "capture_graph": False,
+        "batch_size": 64,
+        "num_grasps": 128,
+        "num_chunks": 2,
+        "seconds_total": 0.0,
+        "grasps_per_second": None,
+        "world_steps_per_second": None,
+        "failure_count": 0,
+        "sequential_fallback": False,
+        "mjcf_rewrites": [],
+    }
+
+
 def test_warp_batch_summary_uses_conservative_experimental_metadata():
     design = DesignSpace().sample(seed=12)
     grasps = sample_fixed_random_grasps(1, seed=8, design_id=design.design_id, tool_name="hammer")
