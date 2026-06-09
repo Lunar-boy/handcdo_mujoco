@@ -203,7 +203,24 @@ def test_batch_refuses_when_true_per_world_initialization_is_unavailable(monkeyp
     assert metadata["failure_count"] == 3
     assert metadata["num_chunks"] == 2
     assert metadata["sequential_fallback"] is False
-    assert metadata["warp_capabilities"]["supports_true_fixed_grasp_batching"] is False
+    capabilities = metadata["warp_capabilities"]
+    assert capabilities["can_put_model"] is True
+    assert capabilities["can_put_data"] is False
+    assert capabilities["can_make_data"] is True
+    assert capabilities["can_step"] is True
+    assert capabilities["accepted_data_allocation_kwargs"] == []
+    assert capabilities["data_allocation_probe_error"]
+    assert capabilities["can_set_per_world_qpos"] is False
+    assert capabilities["can_set_per_world_qvel"] is False
+    assert capabilities["can_set_per_world_ctrl"] is False
+    assert capabilities["can_set_per_world_xfrc"] is False
+    assert capabilities["supports_true_fixed_grasp_batching"] is False
+    reason = capabilities["true_fixed_grasp_batching_reason"]
+    assert reason
+    assert "qpos" in reason
+    assert "qvel" in reason
+    assert "ctrl" in reason
+    assert "xfrc" in reason
 
 
 def test_batch_default_does_not_silently_call_cpu_evaluate_grasp(monkeypatch):

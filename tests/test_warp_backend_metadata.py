@@ -1,6 +1,38 @@
 from __future__ import annotations
 
-from handcdo.warp_utils import WarpBatchCapabilities, warp_batch_metadata
+from types import SimpleNamespace
+
+from handcdo.warp_utils import WarpBatchCapabilities, inspect_warp_batch_capabilities, warp_batch_metadata
+
+
+def test_inspect_warp_batch_capabilities_reports_mandatory_conservative_probe_fields():
+    fake_mjw = SimpleNamespace(
+        put_model=object(),
+        put_data=object(),
+        make_data=object(),
+        step=object(),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw)
+
+    assert capabilities.can_put_model is True
+    assert capabilities.can_put_data is True
+    assert capabilities.can_make_data is True
+    assert capabilities.can_step is True
+    assert capabilities.accepted_data_allocation_kwargs == []
+    assert capabilities.data_allocation_probe_error
+    assert "not probed" in capabilities.data_allocation_probe_error
+    assert capabilities.can_set_per_world_qpos is False
+    assert capabilities.can_set_per_world_qvel is False
+    assert capabilities.can_set_per_world_ctrl is False
+    assert capabilities.can_set_per_world_xfrc is False
+    assert capabilities.supports_true_fixed_grasp_batching is False
+    reason = capabilities.true_fixed_grasp_batching_reason
+    assert reason
+    assert "qpos" in reason
+    assert "qvel" in reason
+    assert "ctrl" in reason
+    assert "xfrc" in reason
 
 
 def test_warp_batch_metadata_includes_required_pr11d_keys():
@@ -37,10 +69,16 @@ def test_warp_batch_metadata_includes_required_pr11d_keys():
 def test_warp_batch_metadata_records_conservative_capabilities_and_failure_reason():
     capabilities = WarpBatchCapabilities(
         can_put_model=True,
+        can_put_data=True,
         can_make_data=True,
         can_step=True,
+        accepted_data_allocation_kwargs=[],
+        data_allocation_probe_error="not probed: no concrete MuJoCo objects",
         can_set_per_world_qpos=False,
+        can_set_per_world_qvel=False,
         can_set_per_world_ctrl=False,
+        can_set_per_world_xfrc=False,
+        true_fixed_grasp_batching_reason="qpos qvel ctrl xfrc not verified",
     )
 
     metadata = warp_batch_metadata(
@@ -60,11 +98,17 @@ def test_warp_batch_metadata_records_conservative_capabilities_and_failure_reaso
     assert metadata["failure_reason"] == "true batching unavailable"
     assert metadata["warp_capabilities"] == {
         "can_put_model": True,
+        "can_put_data": True,
         "can_make_data": True,
         "can_step": True,
+        "accepted_data_allocation_kwargs": [],
+        "data_allocation_probe_error": "not probed: no concrete MuJoCo objects",
         "can_set_per_world_qpos": False,
+        "can_set_per_world_qvel": False,
         "can_set_per_world_ctrl": False,
+        "can_set_per_world_xfrc": False,
         "supports_true_fixed_grasp_batching": False,
+        "true_fixed_grasp_batching_reason": "qpos qvel ctrl xfrc not verified",
     }
 
 

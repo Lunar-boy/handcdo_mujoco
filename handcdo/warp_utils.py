@@ -29,19 +29,30 @@ class WarpAvailability:
 @dataclass(frozen=True)
 class WarpBatchCapabilities:
     can_put_model: bool
+    can_put_data: bool
     can_make_data: bool
     can_step: bool
+
+    accepted_data_allocation_kwargs: list[str]
+    data_allocation_probe_error: str | None
+
     can_set_per_world_qpos: bool
+    can_set_per_world_qvel: bool
     can_set_per_world_ctrl: bool
+    can_set_per_world_xfrc: bool
+
+    true_fixed_grasp_batching_reason: str
 
     @property
     def supports_true_fixed_grasp_batching(self) -> bool:
         return (
             self.can_put_model
-            and self.can_make_data
+            and (self.can_put_data or self.can_make_data)
             and self.can_step
             and self.can_set_per_world_qpos
+            and self.can_set_per_world_qvel
             and self.can_set_per_world_ctrl
+            and self.can_set_per_world_xfrc
         )
 
 
@@ -125,12 +136,29 @@ def inspect_warp_batch_capabilities(mjw: Any) -> WarpBatchCapabilities:
     world must receive its own tool free-joint pose and actuator controls.
     """
 
+    data_allocation_probe_error = (
+        "not probed: inspect_warp_batch_capabilities received no concrete "
+        "mj_model, mj_data, or warp_model objects for guarded allocation calls"
+    )
+    true_fixed_grasp_batching_reason = (
+        "Refusing true fixed-grasp batching: this probe verified MuJoCo Warp "
+        "module-level model/data/step symbols only, but did not verify safe "
+        "per-world qpos/qvel/ctrl/xfrc mutation on a batched data object. "
+        "Batched stepping alone is insufficient for fixed-grasp scoring."
+    )
+
     return WarpBatchCapabilities(
         can_put_model=hasattr(mjw, "put_model"),
-        can_make_data=hasattr(mjw, "make_data") or hasattr(mjw, "put_data"),
+        can_put_data=hasattr(mjw, "put_data"),
+        can_make_data=hasattr(mjw, "make_data"),
         can_step=hasattr(mjw, "step"),
+        accepted_data_allocation_kwargs=[],
+        data_allocation_probe_error=data_allocation_probe_error,
         can_set_per_world_qpos=False,
+        can_set_per_world_qvel=False,
         can_set_per_world_ctrl=False,
+        can_set_per_world_xfrc=False,
+        true_fixed_grasp_batching_reason=true_fixed_grasp_batching_reason,
     )
 
 
@@ -172,11 +200,17 @@ def warp_batch_metadata(
     if capabilities is not None:
         payload["warp_capabilities"] = {
             "can_put_model": capabilities.can_put_model,
+            "can_put_data": capabilities.can_put_data,
             "can_make_data": capabilities.can_make_data,
             "can_step": capabilities.can_step,
+            "accepted_data_allocation_kwargs": capabilities.accepted_data_allocation_kwargs,
+            "data_allocation_probe_error": capabilities.data_allocation_probe_error,
             "can_set_per_world_qpos": capabilities.can_set_per_world_qpos,
+            "can_set_per_world_qvel": capabilities.can_set_per_world_qvel,
             "can_set_per_world_ctrl": capabilities.can_set_per_world_ctrl,
+            "can_set_per_world_xfrc": capabilities.can_set_per_world_xfrc,
             "supports_true_fixed_grasp_batching": capabilities.supports_true_fixed_grasp_batching,
+            "true_fixed_grasp_batching_reason": capabilities.true_fixed_grasp_batching_reason,
         }
     if failure_reason is not None:
         payload["failure_reason"] = failure_reason
