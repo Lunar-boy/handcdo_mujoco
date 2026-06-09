@@ -20,14 +20,14 @@ The full PR11 goal is to add an experimental MuJoCo Warp backend for batched fix
 
 Therefore, this PR11 sequence is split into six stages:
 
-| Stage | File | Purpose |
-|---|---|---|
-| PR11-a | `11a-warp-utils-batched-protocol.md` | Add batched protocol and reusable Warp utility extraction only |
-| PR11-b | `11b-lazy-mujoco-warp-backend-skeleton.md` | Add lazy experimental backend skeleton and registry alias |
-| PR11-c | `11c-fixed-random-grasp-batch-orchestration.md` | Add deterministic fixed-grasp batch orchestration with dummy/CPU-testable backend |
-| PR11-d | `11d-minimal-experimental-warp-backend.md` | Implement minimal true experimental MuJoCo Warp batch backend |
-| PR11-e | `11e-experimental-warp-batch-cli.md` | Add dedicated experimental CLI and JSON output schema |
-| PR11-f | `11f-cpu-warp-comparison-docs-validation.md` | Add CPU-vs-Warp comparison, docs, and optional GPU validation |
+| Stage | File | Purpose | Test |
+|---|---|---|---|
+| PR11-a | `11a-warp-utils-batched-protocol.md` | Add batched protocol and reusable Warp utility extraction only | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-b | `11b-lazy-mujoco-warp-backend-skeleton.md` | Add lazy experimental backend skeleton and registry alias | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-c | `11c-fixed-random-grasp-batch-orchestration.md` | Add deterministic fixed-grasp batch orchestration with dummy/CPU-testable backend | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-d | `11d-minimal-experimental-warp-backend.md` | Implement minimal true experimental MuJoCo Warp batch backend | pytest -q python3 scripts/benchmark_mujoco_warp.py --help |
+| PR11-e | `11e-experimental-warp-batch-cli.md` | Add dedicated experimental CLI and JSON output schema | pytest -q python3 scripts/benchmark_mujoco_warp.py --help python3 scripts/evaluate_design_batch_warp.py --help |
+| PR11-f | `11f-cpu-warp-comparison-docs-validation.md` | Add CPU-vs-Warp comparison, docs, and optional GPU validation | pytest -q python3 scripts/benchmark_mujoco_warp.py --help python3 scripts/evaluate_design_batch_warp.py --help |
 
 ## Global semantic rules
 
@@ -48,7 +48,7 @@ These rules apply to every stage:
 8. Do not use Warp results in multifidelity `best_available_score`.
 9. Do not modify existing CPU CLIs except for import-safe helper reuse.
 10. Do not invent MuJoCo Warp APIs. Use only verified APIs from existing PR10 code, official imports, or runtime introspection.
-
+11. Any Warp result must be excluded from CPU/multifidelity/surrogate result pools unless a later PR explicitly adds a guarded import path and comparison validation.
 ## Suggested usage
 
 Copy one prompt at a time into Codex. Do not ask Codex to implement all six prompts at once.

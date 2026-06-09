@@ -212,3 +212,7 @@ This stage is successful if:
 3. It does not fake batching through `evaluate_grasp()`.
 4. CPU-only `pytest -q` passes.
 5. CPU MuJoCo remains the reference backend and default workflow.
+
+## Additional tests:
+1. The same `(design_id, tool_name, seed, n_grasp_trials)` produces the same grasp list regardless of backend.
+2. Tool-level aggregation must not include failed trials when selecting `best_grasp`, but must preserve failed trials in the serialized `trials` list.

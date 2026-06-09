@@ -248,3 +248,7 @@ This stage is successful if:
 2. `mujoco_warp` is available only when explicitly requested.
 3. Constructor validation is tested.
 4. No optional GPU dependency is required for default tests.
+
+
+## Additional guardrail:
+Importing `handcdo.backends.mujoco_warp` and importing `MujocoWarpBackend` must not require `mujoco_warp`. Optional dependency checks may happen only when constructing or using the experimental backend.

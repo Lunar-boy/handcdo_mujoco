@@ -301,3 +301,8 @@ This stage is successful if:
 3. Output schema is explicit and conservative.
 4. Existing CPU workflows remain unchanged.
 5. Default tests pass without GPU dependencies.
+
+## Result collection safety:
+- Do not make existing `scripts/collect_results.py` automatically consume Warp JSON unless an explicit flag such as `--include-experimental-warp` is added in a later PR.
+- Warp result JSON must include `"include_in_multifidelity": false`.
+- If writing into a directory that contains CPU result JSONs, fail unless `--allow-mixed-backend-dir` is explicitly provided.
