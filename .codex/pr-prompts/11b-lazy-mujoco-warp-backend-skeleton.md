@@ -1,8 +1,8 @@
-# Codex Prompt: PR11b — Lazy MuJoCo Warp Backend Skeleton
+# Codex Prompt: PR11-b — Lazy MuJoCo Warp Backend Skeleton
 
 You are working in the `Lunar-boy/handcdo_mujoco` repository.
 
-Start from the latest `main`, after PR11a has been merged:
+Start from latest `main` after PR11-a has merged:
 
 ```bash
 git checkout main
@@ -14,8 +14,14 @@ git checkout -b pr11b-lazy-mujoco-warp-backend
 
 Add an experimental `mujoco_warp` backend skeleton and lazy registry alias.
 
-This stage is about dependency behavior, constructor validation, and backend registration.
-It should not attempt full batched physics scoring yet.
+This stage is about:
+
+- dependency behavior;
+- constructor validation;
+- backend registration;
+- interface shape.
+
+It must not attempt real batched physics scoring yet.
 
 ## Required changes
 
@@ -35,7 +41,7 @@ Do not make `mujoco_warp` the default backend.
 
 ## Backend registry requirements
 
-Update backend aliases so that:
+Update aliases so that:
 
 ```python
 _BACKEND_ALIASES = {
@@ -65,6 +71,20 @@ handcdo/backends/mujoco_warp.py
 Suggested class:
 
 ```python
+from __future__ import annotations
+
+from pathlib import Path
+
+from handcdo.design_space import HandDesign
+from handcdo.geometry_config import GeometryConfig
+from handcdo.grasp_sampling import GraspParams
+from handcdo.mujoco_eval import EvaluationConfig, GraspEvaluation
+
+
+class MujocoWarpUnavailableError(RuntimeError):
+    pass
+
+
 class MujocoWarpBackend:
     name = "mujoco_warp"
 
@@ -90,40 +110,86 @@ Validate:
 - `naconmax is None or naconmax > 0`
 - `njmax > 0`
 - `warmup_steps >= 0`
+- `capture_graph` is boolean-like
+- `allow_sequential_fallback` is boolean-like
 
-After validation, the backend may lazily check optional dependency availability through PR11a/PR10 utilities.
+After validation, the backend may lazily check optional dependency availability through the PR11-a/PR10 utilities.
 
 ## Methods
 
 Add method stubs:
 
 ```python
-def evaluate_grasp(...):
+def evaluate_grasp(
+    self,
+    design: HandDesign,
+    tool_name: str,
+    grasp: GraspParams,
+    config: EvaluationConfig | None,
+    geometry_config: GeometryConfig | None = None,
+    tool_assets_dir: str | Path = "assets/tools",
+) -> GraspEvaluation:
     ...
 ```
 
 ```python
-def evaluate_grasps_batch(...):
+def evaluate_grasps_batch(
+    self,
+    design: HandDesign,
+    tool_name: str,
+    grasps: list[GraspParams],
+    config: EvaluationConfig | None,
+    geometry_config: GeometryConfig | None = None,
+    tool_assets_dir: str | Path = "assets/tools",
+) -> list[GraspEvaluation]:
     ...
 ```
 
-For this stage, it is acceptable for the methods to raise:
+For this stage, these methods may raise:
 
 ```python
-NotImplementedError("Experimental MuJoCo Warp grasp evaluation is not implemented in PR11b; use PR11c.")
+NotImplementedError(
+    "Experimental MuJoCo Warp grasp evaluation is not implemented in PR11-b; use PR11-c/PR11-d."
+)
 ```
-
-But dependency errors should be clear if backend construction requires `mujoco_warp`.
 
 Do not implement fake batching.
 
-Do not silently call CPU backend and label the result as Warp.
+Do not call CPU backend and label the result as Warp.
+
+Do not silently fall back to CPU.
+
+## Lazy optional dependency behavior
+
+The following must work without `mujoco_warp` installed:
+
+```python
+import handcdo.backends
+from handcdo.backends import get_backend
+get_backend("mujoco")
+get_backend("mujoco_cpu")
+```
+
+Requesting the experimental backend may fail clearly:
+
+```python
+get_backend("mujoco_warp")
+```
+
+The error message must explain how to install the optional extra, for example:
+
+```text
+MuJoCo Warp backend requires the optional warp extra. Install with:
+python3 -m pip install -e ".[warp]"
+```
+
+Do not expose a raw `ModuleNotFoundError: mujoco_warp` traceback to normal users.
 
 ## Dependency policy
 
 Do not add `mujoco-warp`, CUDA, JAX, or GPU packages to `[project.dependencies]`.
 
-Reuse the existing optional extra if present:
+Reuse the optional extra if present:
 
 ```toml
 [project.optional-dependencies]
@@ -132,8 +198,6 @@ warp = [
 ]
 ```
 
-If it already exists, do not change it unless necessary.
-
 ## Tests
 
 Add CPU-only tests covering:
@@ -141,7 +205,7 @@ Add CPU-only tests covering:
 1. Importing `handcdo.backends` works without `mujoco_warp`.
 2. `get_backend("mujoco")` returns CPU backend.
 3. `get_backend("mujoco_cpu")` returns CPU backend.
-4. `get_backend("mujoco_warp")` either returns the skeleton backend when optional dependency is available or fails clearly when it is absent.
+4. `get_backend("mujoco_warp")` either returns the skeleton backend when optional dependency is available or fails clearly when absent.
 5. Missing `mujoco_warp` does not break CPU backend construction.
 6. Invalid constructor values are rejected before optional dependency import is required.
 7. `supports_batched_grasps()` returns `True` for `MujocoWarpBackend` only if the class exposes callable `evaluate_grasps_batch`.
@@ -168,6 +232,7 @@ Do not implement:
 
 - real batch initialization;
 - real Warp stepping for grasp scoring;
+- random-grasp orchestration;
 - new batch evaluation CLI;
 - score aggregation;
 - CPU-vs-Warp comparison;

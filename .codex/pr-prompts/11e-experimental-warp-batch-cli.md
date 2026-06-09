@@ -1,13 +1,13 @@
-# Codex Prompt: PR11d — Experimental Warp Batch Evaluation CLI
+# Codex Prompt: PR11-e — Experimental MuJoCo Warp Batch Evaluation CLI
 
 You are working in the `Lunar-boy/handcdo_mujoco` repository.
 
-Start from latest `main`, after PR11a, PR11b, and PR11c have been merged:
+Start from latest `main` after PR11-a through PR11-d have merged:
 
 ```bash
 git checkout main
 git pull origin main
-git checkout -b pr11d-warp-batch-cli
+git checkout -b pr11e-experimental-warp-batch-cli
 ```
 
 ## Goal
@@ -16,7 +16,7 @@ Add a dedicated experimental CLI for MuJoCo Warp batched random-grasp evaluation
 
 This CLI must not change existing CPU evaluation scripts or default backend behavior.
 
-The CLI should be explicit, conservative, and safe on CPU-only systems.
+It must be explicit, conservative, and safe on CPU-only systems.
 
 ## Required changes
 
@@ -26,7 +26,7 @@ Add:
 scripts/evaluate_design_batch_warp.py
 ```
 
-Add/update tests:
+Add or update tests:
 
 ```text
 tests/test_evaluate_design_batch_warp_cli.py
@@ -35,11 +35,11 @@ tests/test_warp_batch_result_schema.py
 
 Update README with a short experimental section.
 
-Do not modify the existing CPU evaluation CLI except for import-safe reuse of helpers if necessary.
+Do not modify the existing CPU evaluation CLI except for import-safe reuse of helpers.
 
-## CLI requirements
+## CLI example
 
-Add:
+Support a command like:
 
 ```bash
 python3 scripts/evaluate_design_batch_warp.py \
@@ -55,34 +55,41 @@ python3 scripts/evaluate_design_batch_warp.py \
   --seed 0
 ```
 
-Supported args:
+## Supported arguments
 
-- `--design-dir`, default `outputs/designs`
-- `--design-ids`, optional text file with one design id per line
-- `--results-dir`, required
-- `--config`, default `configs/eval_fast.yaml`
-- `--tools`, default `hammer,spoon,knife`
-- `--n-grasp-trials`, default `64`
-- `--sampler`, choices `random`; default `random`
-- `--nworld`, default `64`
-- `--nconmax`, default `64`
-- `--naconmax`, optional
-- `--njmax`, default `128`
-- `--warmup-steps`, default `0`
-- `--capture-graph`, action flag, default false
-- `--seed`, default `0`
-- `--max-designs`, optional
-- `--require-warp`, action flag
-- `--overwrite`, action flag, default false
-- `--fail-fast`, action flag, default false
+Required or defaulted args:
 
-Do not use `--continue-on-error` as a `store_true` flag with default true. Use `--fail-fast` instead.
+```text
+--design-dir          default outputs/designs
+--design-ids          optional text file with one design id per line
+--results-dir         required
+--config              default configs/eval_fast.yaml
+--tools               default hammer,spoon,knife
+--n-grasp-trials      default 64
+--sampler             choices random; default random
+--nworld              default 64
+--nconmax             default 64
+--naconmax            optional
+--njmax               default 128
+--warmup-steps        default 0
+--capture-graph       action flag, default false
+--seed                default 0
+--max-designs         optional
+--require-warp        action flag
+--overwrite           action flag, default false
+--fail-fast           action flag, default false
+```
+
+Do not use `--continue-on-error` as a `store_true` flag with default true.
+
+Use `--fail-fast` instead.
 
 ## CLI behavior
 
 - `--help` must work without importing `mujoco_warp`.
 - Missing `mujoco_warp` must produce a clear error only when evaluation is attempted.
-- If `--require-warp` is false and Warp is unavailable, either fail cleanly with a helpful message or write a skipped availability result, but do not crash with an obscure import traceback.
+- If `--require-warp` is false and Warp is unavailable, either fail cleanly with a helpful message or write a skipped availability result.
+- Do not crash with an obscure raw import traceback.
 - Do not silently overwrite existing results. Require `--overwrite`.
 - Write one result JSON per design.
 - Keep output shape compatible with existing result collection where practical.
@@ -96,7 +103,7 @@ For this stage, support only:
 --sampler random
 ```
 
-If the user passes `--sampler tpe`, either argparse should reject it or the script should fail with:
+If the user passes `--sampler tpe`, argparse should reject it or the script should fail clearly:
 
 ```text
 MuJoCo Warp batched evaluation currently supports sampler=random only.
@@ -112,33 +119,38 @@ For each design result JSON, use a shape like:
 ```json
 {
   "design_id": "...",
-  "parameters": {...},
+  "parameters": {},
   "hand_score": 0.0,
-  "tool_results": [...],
+  "tool_results": [],
   "failed": false,
   "backend": "mujoco_warp",
   "experimental": true,
   "score_semantics": "experimental_non_equivalent",
-  "warp_metadata": {...}
+  "warp_metadata": {}
 }
 ```
 
 `warp_metadata` should include:
 
-- `nworld`
-- `nconmax`
-- `naconmax`
-- `njmax`
-- `warmup_steps`
-- `capture_graph`
-- `batch_size`
-- `num_grasps`
-- `num_chunks`
-- `seconds_total`
-- `grasps_per_second`, if measurable
-- `world_steps_per_second`, if measurable
-- `failure_count`
-- optional safe device info
+```json
+{
+  "nworld": 64,
+  "nconmax": 64,
+  "naconmax": null,
+  "njmax": 128,
+  "warmup_steps": 0,
+  "capture_graph": false,
+  "batch_size": 64,
+  "num_grasps": 128,
+  "num_chunks": 2,
+  "seconds_total": 0.0,
+  "grasps_per_second": null,
+  "world_steps_per_second": null,
+  "failure_count": 0,
+  "sequential_fallback": false,
+  "mjcf_rewrites": []
+}
+```
 
 Per-tool result should preserve the existing shape where practical:
 
@@ -146,8 +158,8 @@ Per-tool result should preserve the existing shape where practical:
 {
   "tool": "hammer",
   "best_score": 0.0,
-  "best_grasp": {...},
-  "trials": [...]
+  "best_grasp": {},
+  "trials": []
 }
 ```
 
@@ -155,10 +167,36 @@ Each trial should include:
 
 - grasp parameters;
 - score;
-- wrench results if implemented;
 - failed flag;
 - error if failed;
+- wrench results if implemented;
 - backend metadata if useful.
+
+## Result safety
+
+Do not write:
+
+```json
+"score_semantics": "intended_cpu_equivalent"
+```
+
+from this CLI.
+
+Do not mix Warp output with CPU reference output in the same results directory unless the filename or JSON makes the backend explicit.
+
+Recommended filename pattern:
+
+```text
+<design_id>.mujoco_warp.experimental.json
+```
+
+or:
+
+```text
+<design_id>.json
+```
+
+inside a clearly named `warp_results` directory.
 
 ## README update
 
@@ -170,13 +208,13 @@ Add a short section:
 
 Explain:
 
-- The backend is optional and experimental.
-- It is intended for NVIDIA GPU throughput experiments, especially H100-class systems.
-- It is most useful for fixed random-grasp batch evaluation.
-- It is not the default backend.
-- CPU MuJoCo remains the reference implementation.
-- Do not use Warp scores as final scientific conclusions until CPU-vs-Warp comparisons are stable.
-- Default installation and tests remain CPU-only.
+- the backend is optional and experimental;
+- it is intended for NVIDIA GPU throughput experiments, especially H100-class systems;
+- it is most useful for fixed random-grasp batch evaluation;
+- it is not the default backend;
+- CPU MuJoCo remains the reference implementation;
+- Warp scores should not be used as final scientific conclusions until CPU-vs-Warp comparisons are stable;
+- default installation and tests remain CPU-only.
 
 Include install example:
 
@@ -246,7 +284,7 @@ python3 scripts/evaluate_design_batch_warp.py \
 Do not implement:
 
 - CPU-vs-Warp comparison helper;
-- exact CPU-equivalent scoring unless already implemented in PR11c;
+- exact CPU-equivalent scoring;
 - TPE batching;
 - Slurm production templates;
 - JAX/MJX/autodiff;
