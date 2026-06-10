@@ -23,10 +23,12 @@ from handcdo.warp_utils import (
     WarpAvailability,
     availability_payload,
     check_warp_available,
+    inspect_warp_batch_capabilities,
     make_warp_data,
     prepare_warp_compatible_mjcf,
     synchronize_warp,
     utc_timestamp,
+    warp_capabilities_payload,
 )
 
 
@@ -457,6 +459,18 @@ def run_warp_timing(
             raise AttributeError("mujoco_warp.put_model is unavailable")
         warp_model = mjw.put_model(mj_model)
         transfer_seconds = time.perf_counter() - transfer_start
+        capability_probe_error = None
+        try:
+            smoke_warp_data = make_warp_data(mjw, warp_model, mj_model, mj_data, nworld, nconmax, naconmax, njmax)
+            capabilities = inspect_warp_batch_capabilities(
+                mjw,
+                warp_model=warp_model,
+                warp_data=smoke_warp_data,
+                nworld=nworld,
+            )
+        except Exception as exc:
+            capability_probe_error = f"{type(exc).__name__}: {exc}"
+            capabilities = inspect_warp_batch_capabilities(mjw, warp_model=warp_model, nworld=nworld)
         allocation_start = time.perf_counter()
         warp_data = make_warp_data(mjw, warp_model, mj_model, mj_data, nworld, nconmax, naconmax, njmax)
         allocation_seconds = time.perf_counter() - allocation_start
@@ -513,6 +527,8 @@ def run_warp_timing(
             "sync_warning": sync_warning or sync_warning_after,
             "capture_graph": False,
             "contact_smoke_setup": scene_mode == "contact_smoke",
+            "warp_capabilities": warp_capabilities_payload(capabilities),
+            "capability_probe_error": capability_probe_error,
         },
     )
 

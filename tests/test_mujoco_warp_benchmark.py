@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import subprocess
 import sys
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from handcdo.backends.registry import get_backend
@@ -226,6 +228,73 @@ def test_cpu_smoke_benchmark_skips_cleanly_if_mujoco_unavailable(tmp_path):
     assert result["backend"] == "mujoco_cpu"
     assert result["success"] is False
     assert result["failure_stage"] == "load_model"
+
+
+def test_warp_timing_uses_dedicated_smoke_data_for_capability_probe(monkeypatch, tmp_path):
+    class FakeModel:
+        nconmax = 0
+        njmax = 16
+
+        @classmethod
+        def from_xml_path(cls, path):
+            return cls()
+
+    class FakeData:
+        ncon = 0
+        nefc = 0
+
+        def __init__(self, model):
+            self.model = model
+
+    fake_mujoco = SimpleNamespace(
+        MjModel=FakeModel,
+        MjData=FakeData,
+        mj_forward=lambda model, data: None,
+        mj_step=lambda model, data: None,
+    )
+    fake_mjw = SimpleNamespace(
+        put_model=lambda model: SimpleNamespace(kind="warp_model"),
+        step=lambda model, data: setattr(data, "stepped", True),
+    )
+    monkeypatch.setitem(sys.modules, "mujoco", fake_mujoco)
+    monkeypatch.setitem(sys.modules, "mujoco_warp", fake_mjw)
+    monkeypatch.setattr(mujoco_warp, "synchronize_warp", lambda: (True, None))
+
+    data_objects = []
+
+    def fake_make_warp_data(*args, **kwargs):
+        data = SimpleNamespace(
+            qpos=np.zeros((2, 1)),
+            qvel=np.zeros((2, 1)),
+            ctrl=np.zeros((2, 1)),
+            xfrc_applied=np.zeros((2, 1, 6)),
+            stepped=False,
+        )
+        data_objects.append(data)
+        return data
+
+    monkeypatch.setattr(mujoco_warp, "make_warp_data", fake_make_warp_data)
+
+    row = mujoco_warp.run_warp_timing(
+        tmp_path / "model.xml",
+        steps=1,
+        warmup_steps=1,
+        repeats=1,
+        scene_mode="load_step",
+        seed=0,
+        nworld=2,
+        nconmax=8,
+        naconmax=None,
+        njmax=16,
+    )
+
+    assert row["success"] is True
+    assert len(data_objects) == 2
+    smoke_data, timing_data = data_objects
+    assert smoke_data.stepped is False
+    assert timing_data.stepped is True
+    assert row["warp_capabilities"]["can_set_per_world_qpos"] is True
+    assert row["capability_probe_error"] is None
 
 
 def test_optional_slurm_helpers_contain_expected_scheduler_profiles():

@@ -29,9 +29,13 @@ handcdo/backends/registry.py
 handcdo/backends/mujoco_warp.py
 handcdo/backends/*warp*.py
 handcdo/backends/*batched*.py
+handcdo/warp_utils.py
+handcdo/benchmarks/mujoco_warp.py
 scripts/benchmark_mujoco_warp.py
 scripts/evaluate_design_batch_warp.py
 tests/test_*warp*.py
+tests/test_warp_backend_metadata.py
+tests/test_mujoco_warp_backend_optional.py
 tests/test_*backend*.py
 pyproject.toml
 README.md
@@ -39,6 +43,80 @@ README.md
 ```
 
 Use the actual existing filenames. Do not create duplicate utilities if equivalent utilities already exist.
+
+
+## Implementation guardrails
+
+`handcdo/warp_utils.py` is the canonical home for `WarpBatchCapabilities`,
+`inspect_warp_batch_capabilities`, `make_warp_data`, and `warp_batch_metadata`.
+Do not create a second competing capability-probe module unless the existing
+structure clearly requires it.
+
+Preserve existing public field names and JSON metadata keys where possible,
+especially:
+
+```text
+can_put_model
+can_put_data
+can_make_data
+can_step
+can_set_per_world_qpos
+can_set_per_world_qvel
+can_set_per_world_ctrl
+can_set_per_world_xfrc
+supports_true_fixed_grasp_batching
+true_fixed_grasp_batching_reason
+```
+
+Prefer additive fields over renaming existing fields. If a field is renamed,
+update all call sites, metadata serialization, benchmark outputs, and existing
+tests deliberately in the same PR.
+
+For real `warp_data` probing, distinguish three levels:
+
+1. field is present;
+2. field appears batched with leading `nworld`;
+3. field has an actually tested per-world write path.
+
+Do not set `can_set_per_world_* = True` from shape alone. Batched shape is
+necessary but not sufficient for true fixed-grasp batching.
+
+For write smoke tests:
+
+- Use a fresh smoke-test `warp_data` whenever possible.
+- If mutating an existing object, snapshot original values first and restore
+  them before returning.
+- Prefer official/runtime-discovered state APIs such as `set_state`,
+  `get_state`, or `reset_data` if exposed by the installed `mujoco_warp`.
+- Only use direct field writes when the field object clearly supports safe
+  assignment/copy semantics.
+- Synchronize before and after GPU writes when a `warp.synchronize()` path
+  exists.
+- Verify writes by round-tripping to host when possible.
+- If verification is impossible, return `write_tested=False` with a clear
+  reason instead of reporting success.
+- Never leave mutated `qpos`, `qvel`, `ctrl`, or `xfrc_applied` values in a
+  caller-owned data object.
+
+`supports_true_fixed_grasp_batching` may be true only when:
+
+- MuJoCo Warp import/module capability is available;
+- model/data creation and stepping APIs are present;
+- `qpos`, `qvel`, `ctrl`, and `xfrc_applied` are present;
+- all four fields are batched with leading `nworld`;
+- all four fields have verified per-world write support.
+
+After `handcdo/benchmarks/mujoco_warp.py` creates `warp_model` and `warp_data`,
+record the real capability probe result in benchmark JSON/CSV diagnostics
+without changing benchmark scoring semantics.
+
+The optional GPU smoke test is diagnostic only. It must skip clearly when the
+installed MuJoCo Warp runtime, CUDA context, or data object does not expose the
+required write path. A skip is acceptable; a fake pass is not.
+
+Keep PR12 narrow. It must not implement fixed-grasp batch scoring, wrench
+evaluation, TPE batching, graph capture, CPU-vs-Warp score validation, or CLI
+default changes.
 
 ## Required changes
 
@@ -70,6 +148,9 @@ class WarpBatchCapabilities:
 ```
 
 If an existing capability dataclass already exists, extend it instead of replacing it.
+Do not rename existing public fields merely to match this sketch; the sketch is
+illustrative. Prefer preserving the current `can_*` metadata schema and adding
+new fields only when needed.
 
 ### 2. Replace static probing with runtime probing
 
@@ -114,6 +195,7 @@ xfrc_applied: (nworld, nbody, 6)
 ```
 
 Do not assume exact concrete array classes. Use guarded introspection.
+Do not infer per-world write support from shape inspection alone.
 
 ### 3. Add a guarded per-world state write smoke helper
 
@@ -134,10 +216,16 @@ The helper should attempt to verify that each field can be assigned per world.
 Implementation policy:
 
 - Prefer runtime-safe APIs discovered from the existing PR11 utility code.
+- Prefer official/runtime-discovered MuJoCo Warp state APIs when available,
+  such as `set_state`, `get_state`, or `reset_data`.
 - If a direct assignment or copy path is not available, return a clear diagnostic instead of guessing.
+- Snapshot and restore original values when mutating an existing `warp_data`.
+- Synchronize around GPU writes when `warp.synchronize()` is available.
+- Verify writes by round-tripping values back to host when possible.
 - Do not fake success.
 - Do not call CPU backend and label it as Warp.
 - Do not require this helper in CPU-only tests.
+- Do not leave caller-owned `warp_data` in a mutated state.
 
 Suggested return schema:
 
@@ -204,6 +292,7 @@ The optional GPU smoke test should:
 - create `warp_model` and `warp_data`;
 - run capability inspection;
 - verify that per-world state fields are present and batched;
+- verify write support only through an actual round-trip smoke test;
 - optionally call the per-world state write smoke helper.
 
 Skip clearly if:
@@ -251,5 +340,6 @@ This PR is acceptable if:
 2. Default backend behavior is unchanged.
 3. Runtime capability probing can distinguish conservative/no-data mode from real `warp_data` mode.
 4. The code no longer hard-codes all per-world state support to `False` when actual `warp_data` is available.
-5. No fake GPU success path exists.
-6. Optional GPU tests, when run in a valid environment, report whether per-world `qpos/qvel/ctrl/xfrc_applied` write support is actually available.
+5. Shape-only detection never reports verified per-world write support.
+6. No fake GPU success path exists.
+7. Optional GPU tests, when run in a valid environment, report whether per-world `qpos/qvel/ctrl/xfrc_applied` write support is actually available.

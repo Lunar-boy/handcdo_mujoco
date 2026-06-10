@@ -65,6 +65,15 @@ class MujocoWarpBackend:
         self.last_batch_metadata = self._metadata(num_grasps=0, num_chunks=0)
         self._ensure_available()
 
+    def capabilities(self):
+        from handcdo.warp_utils import inspect_warp_batch_capabilities
+
+        try:
+            mjw = _import_mujoco_warp()
+        except MujocoWarpUnavailableError:
+            return inspect_warp_batch_capabilities(None)
+        return inspect_warp_batch_capabilities(mjw)
+
     def evaluate_grasp(
         self,
         design: HandDesign,
