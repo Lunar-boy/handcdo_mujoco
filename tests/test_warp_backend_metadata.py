@@ -138,8 +138,49 @@ def test_capability_probe_detects_batched_mock_data_and_verified_writes():
     assert capabilities.can_set_per_world_qvel is True
     assert capabilities.can_set_per_world_ctrl is True
     assert capabilities.can_set_per_world_xfrc is True
+    assert capabilities.qpos_write_method == "direct_setitem"
     assert capabilities.supports_true_fixed_grasp_batching is True
     np.testing.assert_allclose(warp_data.qpos, original_qpos)
+
+
+def test_capability_probe_can_use_field_native_copy_method():
+    class CopySlice:
+        def __init__(self, parent, world_index):
+            self.parent = parent
+            self.world_index = world_index
+
+        def copy_(self, value):
+            self.parent.data[self.world_index] = value
+
+    class CopyOnlyField:
+        def __init__(self, shape):
+            self.data = np.zeros(shape)
+
+        @property
+        def shape(self):
+            return self.data.shape
+
+        def __array__(self, dtype=None, copy=None):
+            return np.array(self.data, dtype=dtype, copy=copy if copy is not None else True)
+
+        def __getitem__(self, key):
+            world_index = key[0] if isinstance(key, tuple) else key
+            return CopySlice(self, world_index)
+
+    fake_mjw = SimpleNamespace(put_model=object(), make_data=object(), step=object())
+    warp_data = SimpleNamespace(
+        qpos=CopyOnlyField((2, 3)),
+        qvel=CopyOnlyField((2, 2)),
+        ctrl=CopyOnlyField((2, 1)),
+        xfrc_applied=CopyOnlyField((2, 4, 6)),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.can_set_per_world_qpos is True
+    assert capabilities.qpos_write_method == "field.copy_"
+    assert capabilities.supports_true_fixed_grasp_batching is True
+    np.testing.assert_allclose(warp_data.qpos.data, np.zeros((2, 3)))
 
 
 def test_capability_probe_rejects_unbatched_mock_data():
