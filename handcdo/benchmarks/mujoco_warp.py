@@ -23,10 +23,12 @@ from handcdo.warp_utils import (
     WarpAvailability,
     availability_payload,
     check_warp_available,
+    inspect_warp_batch_capabilities,
     make_warp_data,
     prepare_warp_compatible_mjcf,
     synchronize_warp,
     utc_timestamp,
+    warp_capabilities_payload,
 )
 
 
@@ -460,6 +462,12 @@ def run_warp_timing(
         allocation_start = time.perf_counter()
         warp_data = make_warp_data(mjw, warp_model, mj_model, mj_data, nworld, nconmax, naconmax, njmax)
         allocation_seconds = time.perf_counter() - allocation_start
+        capabilities = inspect_warp_batch_capabilities(
+            mjw,
+            warp_model=warp_model,
+            warp_data=warp_data,
+            nworld=nworld,
+        )
         if not hasattr(mjw, "step"):
             raise AttributeError("mujoco_warp.step is unavailable")
         synchronized, sync_warning = synchronize_warp()
@@ -513,6 +521,7 @@ def run_warp_timing(
             "sync_warning": sync_warning or sync_warning_after,
             "capture_graph": False,
             "contact_smoke_setup": scene_mode == "contact_smoke",
+            "warp_capabilities": warp_capabilities_payload(capabilities),
         },
     )
 

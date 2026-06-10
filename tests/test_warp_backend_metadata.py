@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
+
 from handcdo.warp_utils import WarpBatchCapabilities, inspect_warp_batch_capabilities, warp_batch_metadata
 
 
@@ -96,7 +98,7 @@ def test_warp_batch_metadata_records_conservative_capabilities_and_failure_reaso
 
     assert metadata["score_semantics"] == "experimental_non_equivalent"
     assert metadata["failure_reason"] == "true batching unavailable"
-    assert metadata["warp_capabilities"] == {
+    assert metadata["warp_capabilities"] | {
         "can_put_model": True,
         "can_put_data": True,
         "can_make_data": True,
@@ -109,7 +111,78 @@ def test_warp_batch_metadata_records_conservative_capabilities_and_failure_reaso
         "can_set_per_world_xfrc": False,
         "supports_true_fixed_grasp_batching": False,
         "true_fixed_grasp_batching_reason": "qpos qvel ctrl xfrc not verified",
-    }
+    } == metadata["warp_capabilities"]
+
+
+def test_capability_probe_detects_batched_mock_data_and_verified_writes():
+    fake_mjw = SimpleNamespace(put_model=object(), put_data=object(), step=object())
+    warp_data = SimpleNamespace(
+        qpos=np.zeros((2, 3)),
+        qvel=np.zeros((2, 2)),
+        ctrl=np.zeros((2, 1)),
+        xfrc_applied=np.zeros((2, 4, 6)),
+    )
+    original_qpos = warp_data.qpos.copy()
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.has_qpos is True
+    assert capabilities.has_qvel is True
+    assert capabilities.has_ctrl is True
+    assert capabilities.has_xfrc_applied is True
+    assert capabilities.qpos_is_batched is True
+    assert capabilities.qvel_is_batched is True
+    assert capabilities.ctrl_is_batched is True
+    assert capabilities.xfrc_is_batched is True
+    assert capabilities.can_set_per_world_qpos is True
+    assert capabilities.can_set_per_world_qvel is True
+    assert capabilities.can_set_per_world_ctrl is True
+    assert capabilities.can_set_per_world_xfrc is True
+    assert capabilities.supports_true_fixed_grasp_batching is True
+    np.testing.assert_allclose(warp_data.qpos, original_qpos)
+
+
+def test_capability_probe_rejects_unbatched_mock_data():
+    fake_mjw = SimpleNamespace(put_model=object(), make_data=object(), step=object())
+    warp_data = SimpleNamespace(
+        qpos=np.zeros((3,)),
+        qvel=np.zeros((2,)),
+        ctrl=np.zeros((1,)),
+        xfrc_applied=np.zeros((4, 6)),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.has_qpos is True
+    assert capabilities.qpos_is_batched is False
+    assert capabilities.can_set_per_world_qpos is False
+    assert capabilities.supports_true_fixed_grasp_batching is False
+
+
+def test_shape_only_probe_does_not_report_write_support_for_read_only_fields():
+    class ReadOnlyField:
+        def __init__(self, shape):
+            self.shape = shape
+
+        def numpy(self):
+            return np.zeros(self.shape)
+
+    fake_mjw = SimpleNamespace(put_model=object(), make_data=object(), step=object())
+    warp_data = SimpleNamespace(
+        qpos=ReadOnlyField((2, 3)),
+        qvel=ReadOnlyField((2, 2)),
+        ctrl=ReadOnlyField((2, 1)),
+        xfrc_applied=ReadOnlyField((2, 4, 6)),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.qpos_is_batched is True
+    assert capabilities.qvel_is_batched is True
+    assert capabilities.ctrl_is_batched is True
+    assert capabilities.xfrc_is_batched is True
+    assert capabilities.can_set_per_world_qpos is False
+    assert capabilities.supports_true_fixed_grasp_batching is False
 
 
 def test_sequential_fallback_metadata_is_explicitly_non_batch_throughput():
