@@ -776,6 +776,7 @@ def warp_batch_metadata(
         "capture_graph_replay_count": int(capture_graph_replay_count),
         "completed_chunks": int(completed_chunks),
         "failed_chunks": int(failed_chunks),
+        "failure_reason": failure_reason,
         "chunk_reset_strategy": chunk_reset_strategy,
         "chunk_reset_count": int(chunk_reset_count),
         "inactive_worlds_zeroed": bool(inactive_worlds_zeroed),
@@ -799,8 +800,7 @@ def warp_batch_metadata(
     }
     if capabilities is not None:
         payload["warp_capabilities"] = warp_capabilities_payload(capabilities)
-    if failure_reason is not None:
-        payload["failure_reason"] = failure_reason
+        
     return payload
 
 

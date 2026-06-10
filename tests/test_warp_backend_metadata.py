@@ -317,3 +317,23 @@ def test_sequential_fallback_metadata_is_explicitly_non_batch_throughput():
     assert metadata["score_semantics"] == "experimental_sequential_fallback"
     assert metadata["sequential_fallback"] is True
     assert metadata["world_steps_per_second"] is None
+
+def test_warp_batch_metadata_includes_null_failure_reason_on_success():
+    from handcdo.warp_utils import warp_batch_metadata
+
+    metadata = warp_batch_metadata(
+        nworld=2,
+        nconmax=64,
+        naconmax=None,
+        njmax=128,
+        num_grasps=2,
+        num_chunks=1,
+        failure_count=0,
+        seconds_total=0.1,
+        failure_reason=None,
+        true_batched_scoring=True,
+        per_world_state_init=True,
+    )
+
+    assert "failure_reason" in metadata
+    assert metadata["failure_reason"] is None
