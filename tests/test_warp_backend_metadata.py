@@ -53,6 +53,10 @@ def test_warp_batch_metadata_includes_required_pr11d_keys():
         "backend": "mujoco_warp",
         "experimental": True,
         "score_semantics": "experimental_non_equivalent",
+        "true_batched_scoring": True,
+        "per_world_state_init": True,
+        "wrench_directions": 12,
+        "include_in_multifidelity": False,
         "nworld": 64,
         "nconmax": 64,
         "naconmax": None,
@@ -98,6 +102,9 @@ def test_warp_batch_metadata_records_conservative_capabilities_and_failure_reaso
 
     assert metadata["score_semantics"] == "experimental_non_equivalent"
     assert metadata["failure_reason"] == "true batching unavailable"
+    assert metadata["true_batched_scoring"] is False
+    assert metadata["per_world_state_init"] is False
+    assert metadata["include_in_multifidelity"] is False
     assert metadata["warp_capabilities"] | {
         "can_put_model": True,
         "can_put_data": True,

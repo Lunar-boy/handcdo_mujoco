@@ -139,6 +139,10 @@ def _empty_metadata(args: argparse.Namespace, *, num_grasps: int, failure_count:
         "warmup_steps": args.warmup_steps,
         "capture_graph": args.capture_graph,
         "batch_size": args.nworld,
+        "true_batched_scoring": False,
+        "per_world_state_init": False,
+        "wrench_directions": 12,
+        "include_in_multifidelity": False,
         "num_grasps": num_grasps,
         "num_chunks": math.ceil(num_grasps / args.nworld) if num_grasps else 0,
         "seconds_total": 0.0,
@@ -168,6 +172,10 @@ def _normalize_backend_metadata(args: argparse.Namespace, metadata: dict[str, An
             "world_steps_per_second": metadata.get("world_steps_per_second"),
             "sequential_fallback": bool(metadata.get("sequential_fallback", False)),
             "mjcf_rewrites": metadata.get("mjcf_rewrites", []),
+            "true_batched_scoring": bool(metadata.get("true_batched_scoring", False)),
+            "per_world_state_init": bool(metadata.get("per_world_state_init", False)),
+            "wrench_directions": int(metadata.get("wrench_directions", 12)),
+            "include_in_multifidelity": bool(metadata.get("include_in_multifidelity", False)),
         }
     )
     for key in ("warp_capabilities", "failure_reason"):
@@ -185,6 +193,10 @@ def _aggregate_tool_metadata(args: argparse.Namespace, tool_metadata: list[dict[
     metadata["seconds_total"] = seconds_total
     metadata["grasps_per_second"] = num_grasps / seconds_total if seconds_total > 0 else None
     metadata["sequential_fallback"] = any(bool(item.get("sequential_fallback", False)) for item in tool_metadata)
+    metadata["true_batched_scoring"] = any(bool(item.get("true_batched_scoring", False)) for item in tool_metadata)
+    metadata["per_world_state_init"] = any(bool(item.get("per_world_state_init", False)) for item in tool_metadata)
+    metadata["wrench_directions"] = 12
+    metadata["include_in_multifidelity"] = False
     metadata["mjcf_rewrites"] = [
         rewrite for item in tool_metadata for rewrite in item.get("mjcf_rewrites", [])
     ]

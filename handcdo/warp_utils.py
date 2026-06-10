@@ -638,6 +638,10 @@ def warp_batch_metadata(
         "backend": "mujoco_warp",
         "experimental": True,
         "score_semantics": score_semantics,
+        "true_batched_scoring": num_grasps > 0 and not sequential_fallback and failure_reason is None,
+        "per_world_state_init": num_grasps > 0 and not sequential_fallback and failure_reason is None,
+        "wrench_directions": 12,
+        "include_in_multifidelity": False,
         "nworld": nworld,
         "nconmax": nconmax,
         "naconmax": naconmax,
@@ -768,17 +772,19 @@ def make_warp_data(
     if naconmax is not None:
         kwargs["naconmax"] = naconmax
     if hasattr(mjw, "put_data"):
-        for args in ((mj_model, mj_data), (warp_model, mj_data), (warp_model,)):
+        for args in ((mj_model, mj_data), (warp_model, mj_data), (mj_model,), (warp_model,)):
             try:
                 return mjw.put_data(*args, **kwargs)
             except TypeError:
                 continue
-        return mjw.put_data(warp_model)
+        return mjw.put_data(mj_model, mj_data)
     if hasattr(mjw, "make_data"):
-        try:
-            return mjw.make_data(warp_model, **kwargs)
-        except TypeError:
-            return mjw.make_data(warp_model, nworld=nworld)
+        for args in ((mj_model,), (mj_model, mj_data), (warp_model,)):
+            try:
+                return mjw.make_data(*args, **kwargs)
+            except TypeError:
+                continue
+        return mjw.make_data(mj_model, nworld=nworld)
     raise AttributeError("mujoco_warp has neither make_data nor put_data")
 
 

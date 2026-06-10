@@ -22,11 +22,14 @@ The target is not final performance. The target is physical pipeline correctness
 generate design MJCF
 load MuJoCo model
 create Warp model/data with nworld
+probe the concrete Warp data object for per-world write support
 map fixed random grasps into per-world qpos/qvel/ctrl
 close/settle hand
 run 12-direction wrench tests
-return GraspEvaluation-like results with experimental Warp metadata
+return GraspEvaluation-compatible results and expose batch-level experimental Warp metadata
 ```
+
+Do not claim CPU equivalence in this PR. The Warp score semantics must remain explicitly marked experimental and non-equivalent.
 
 ## Files to inspect first
 
@@ -39,13 +42,20 @@ handcdo/mujoco_eval.py
 handcdo/grasp_sampling.py
 handcdo/geometry_config.py
 handcdo/design_space.py
-handcdo/mjcf_builder.py
+handcdo/mjcf_generator.py
 handcdo/tools.py
+handcdo/wrench_score.py
+handcdo/warp_utils.py
 handcdo/backends/*warp*.py
 scripts/evaluate_design_batch_warp.py
 tests/test_*warp*.py
 tests/test_*mujoco*.py
 ```
+
+Important repository-path constraint:
+
+- Do not create `handcdo/mjcf_builder.py`.
+- The current MJCF generator is `handcdo/mjcf_generator.py`.
 
 Find the CPU reference logic for:
 
@@ -57,6 +67,13 @@ Find the CPU reference logic for:
 - computing final normalized score.
 
 Do not duplicate semantics blindly. Extract shared helper logic where safe.
+
+CPU semantics that must be matched where possible:
+
+- Tool pose must follow the current CPU helper semantics: find the `tool_free` free joint, write `tool.reference_pos + [dx, dy, dz]` to the free-joint position, and convert `roll/pitch/yaw` with the same MuJoCo `XYZ` Euler convention.
+- Hand closure must follow the current actuator-control semantics: actuator names beginning with `thumb` use `thumb_closure`; other actuators use `closure`; preserve the existing `spread_bias` parity rule and clipping range.
+- Wrench testing must follow the current CPU semantics: restore settled `qpos/qvel/ctrl` before every direction, clear `xfrc_applied`, run the MuJoCo forward/kinematics-equivalent update before measuring the start pose, ramp wrench magnitudes linearly, and use the existing translation/rotation thresholds.
+- Use existing `WRENCH_DIRECTIONS` and `aggregate_wrench_results` from `handcdo/wrench_score.py`; do not redefine another list of wrench directions.
 
 ## Required changes
 
@@ -86,6 +103,15 @@ Responsibilities:
 - identify tool body id and tool free-joint qpos address;
 - expose actuator names and counts.
 
+MuJoCo Warp API requirements:
+
+- Prefer the current public API shape:
+  - `warp_model = mjw.put_model(mj_model)`
+  - `warp_data = mjw.put_data(mj_model, mj_data, nworld=nworld, nconmax=..., naconmax=..., njmax=...)`
+- Do not assume `make_data` accepts `warp_model`. If `make_data` is used as a fallback, audit and test whether it requires `mujoco.MjModel`.
+- If `handcdo.warp_utils.make_warp_data` is used, audit and fix its fallback signatures instead of hiding API mismatches in the backend.
+- Preserve guarded fallbacks only when they are tested or clearly justified.
+
 Do not expose this as a public stable API yet unless existing code style requires it.
 
 ### 2. Implement per-world fixed-grasp state initialization
@@ -113,7 +139,7 @@ xfrc_zero: (batch, nbody, 6)
 Requirements:
 
 - one world corresponds to one fixed grasp;
-- write tool position and orientation into the tool free joint;
+- write tool position and orientation into the tool free joint using the CPU reference convention;
 - write actuator controls according to the same closure semantics as the CPU evaluator;
 - zero velocities;
 - zero external forces;
@@ -121,7 +147,25 @@ Requirements:
 - validate batch size does not exceed `nworld`;
 - return clear errors if required tool/free-joint/actuator metadata cannot be found.
 
-### 3. Implement close/settle in Warp
+### 3. Implement concrete capability probing and close/settle in Warp
+
+Capability probing order is mandatory:
+
+1. generate/prepare MJCF;
+2. load `mujoco.MjModel` and create `mujoco.MjData`;
+3. create real `warp_model` and real `warp_data`;
+4. call capability probing on the concrete `warp_data` object, not only on the module:
+   ```python
+   inspect_warp_batch_capabilities(
+       mjw,
+       warp_model=warp_model,
+       warp_data=warp_data,
+       nworld=nworld,
+   )
+   ```
+5. proceed only if `supports_true_fixed_grasp_batching` is true.
+
+A module-only call such as `inspect_warp_batch_capabilities(mjw)` is intentionally conservative and is not sufficient for PR13.
 
 Add minimal batched close/settle support:
 
@@ -139,12 +183,14 @@ Implement a minimal batched version of the CPU wrench test.
 
 Requirements:
 
-- use the same 12 Cartesian force/torque directions as CPU reference;
+- use the same 12 Cartesian force/torque directions as CPU reference via `WRENCH_DIRECTIONS`;
 - restore settled state before each direction;
+- clear `xfrc_applied` before each direction;
 - apply external wrench to the tool body through per-world `xfrc_applied`;
 - step all worlds together;
 - detect failure using the same translation and rotation thresholds as CPU reference;
 - compute stable steps and normalized score per world;
+- aggregate wrench results with the existing scoring helper where possible;
 - return one result per input grasp.
 
 Performance note:
@@ -163,16 +209,24 @@ MujocoWarpBackend.evaluate_grasps_batch(...)
 
 so that it:
 
-- checks runtime capabilities;
+- returns `[]` for empty grasp lists before constructing GPU state;
+- builds the Warp scene bundle for each one-design/one-tool evaluation path;
+- probes runtime capabilities on the concrete `warp_data`;
 - rejects unsupported environments clearly;
 - chunks input grasps by `nworld`;
 - evaluates each chunk with true Warp batched simulation;
-- returns a list of evaluation objects matching the existing expected type or schema;
+- returns a list of `GraspEvaluation` objects compatible with the existing dataclass/schema;
 - never calls CPU backend and labels the result as Warp;
 - never silently falls back to CPU;
-- retains experimental metadata.
+- retains experimental metadata through existing batch-level metadata paths.
 
-Suggested metadata:
+Metadata constraints:
+
+- Do not add fields to `GraspEvaluation` in this PR unless absolutely necessary.
+- Prefer exposing Warp metadata through `MujocoWarpBackend.last_batch_metadata` and any existing CLI/tool summary metadata path.
+- Keep per-grasp results compatible with the current `GraspEvaluation` dataclass/schema.
+
+Suggested batch-level metadata:
 
 ```json
 {
@@ -182,7 +236,8 @@ Suggested metadata:
   "true_batched_scoring": true,
   "per_world_state_init": true,
   "wrench_directions": 12,
-  "include_in_multifidelity": false
+  "include_in_multifidelity": false,
+  "sequential_fallback": false
 }
 ```
 
@@ -201,13 +256,15 @@ Prefer the option that best matches existing code style and tests.
 
 CPU-only tests:
 
-1. `evaluate_grasps_batch` rejects unavailable `mujoco_warp` clearly.
+1. `evaluate_grasps_batch` rejects unavailable `mujoco_warp` clearly at the backend level.
 2. `evaluate_grasps_batch` rejects environments without true per-world state support.
-3. Batched initial-state construction works with small fake/mock model metadata.
-4. Empty grasp lists return an empty list without constructing GPU state.
-5. Chunking respects `nworld`.
+3. Capability probing is called after a concrete `warp_data` object exists.
+4. Batched initial-state construction works with small fake/mock model metadata.
+5. Empty grasp lists return an empty list without constructing GPU state.
+6. Chunking respects `nworld`.
+7. Existing CLI/orchestration tests remain compatible with structured failed `GraspEvaluation` results when backend exceptions are intentionally caught at a higher level.
 
-Optional GPU tests gated by `RUN_GPU_TESTS=1`:
+Optional GPU tests gated by `RUN_GPU_TESTS=1` and `pytest.mark.gpu`:
 
 1. one design;
 2. one tool, preferably the simplest existing tool asset;
@@ -216,6 +273,13 @@ Optional GPU tests gated by `RUN_GPU_TESTS=1`:
 5. verify finite scores;
 6. verify metadata marks results as experimental non-equivalent;
 7. verify no CPU fallback happened.
+
+Test policy:
+
+- CPU-only tests must not require `mujoco_warp`, CUDA, or a GPU.
+- Backend-level unsupported-environment tests may assert `NotImplementedError` or a project-specific backend capability error.
+- CLI/orchestration-level tests may expect structured failed `GraspEvaluation` objects if the existing orchestration layer catches backend exceptions.
+- Do not mark the Warp implementation as CPU-equivalent or include it in multifidelity scoring.
 
 ## Validation
 
@@ -231,10 +295,17 @@ Optional GPU:
 ```bash
 python3 -m pip install -e ".[warp]"
 RUN_GPU_TESTS=1 pytest -q -m gpu
-python3 scripts/evaluate_design_batch_warp.py --design preset --tool hammer --num-grasps 4 --backend mujoco_warp --nworld 4
+python3 scripts/evaluate_design_batch_warp.py \
+  --design-dir outputs/designs \
+  --results-dir outputs/warp_results_pr13 \
+  --tools hammer \
+  --n-grasp-trials 4 \
+  --nworld 4 \
+  --require-warp \
+  --overwrite
 ```
 
-Adjust CLI arguments to the actual script interface.
+If the script interface has changed, adjust the example to the current `scripts/evaluate_design_batch_warp.py --help` output before committing.
 
 ## Out of scope
 
@@ -256,7 +327,9 @@ This PR is acceptable if:
 
 1. A real MuJoCo Warp batch path exists behind `evaluate_grasps_batch`.
 2. The path initializes one fixed grasp per world.
-3. The path runs close/settle and 12-direction wrench testing.
-4. Results are explicitly marked experimental and non-equivalent.
-5. CPU-only CI still passes without `mujoco_warp`.
-6. Optional GPU smoke tests can execute a tiny batch without CPU fallback.
+3. The path probes concrete `warp_data` for per-world write support before scoring.
+4. The path runs close/settle and 12-direction wrench testing.
+5. Results are explicitly marked experimental and non-equivalent through batch-level metadata.
+6. `GraspEvaluation` remains schema-compatible with existing code unless a justified schema migration is included.
+7. CPU-only CI still passes without `mujoco_warp`.
+8. Optional GPU smoke tests can execute a tiny batch without CPU fallback.

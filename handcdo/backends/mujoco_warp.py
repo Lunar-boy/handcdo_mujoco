@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 import math
+import tempfile
 import time
+
+import numpy as np
 
 from handcdo.design_space import HandDesign
 from handcdo.geometry_config import GeometryConfig
 from handcdo.grasp_sampling import GraspParams
 from handcdo.mujoco_eval import EvaluationConfig, GraspEvaluation
+from handcdo.tools import ToolSpec
 
 
 INSTALL_HINT = 'python3 -m pip install -e ".[warp]"'
@@ -27,6 +32,10 @@ class MujocoWarpUnavailableError(RuntimeError):
     pass
 
 
+class MujocoWarpCapabilityError(NotImplementedError):
+    pass
+
+
 @dataclass(frozen=True)
 class MujocoWarpBackendConfig:
     nworld: int = 64
@@ -36,6 +45,28 @@ class MujocoWarpBackendConfig:
     warmup_steps: int = 0
     capture_graph: bool = False
     allow_sequential_fallback: bool = False
+
+
+@dataclass
+class WarpSceneBundle:
+    mj_model: Any
+    mj_data: Any
+    warp_model: Any
+    warp_data: Any
+    tool: ToolSpec
+    tool_body_id: int
+    tool_qpos_addr: int
+    actuator_names: list[str]
+    nworld: int
+    mjcf_rewrites: list[dict[str, Any]]
+
+
+@dataclass
+class BatchedInitialState:
+    qpos_init: np.ndarray
+    qvel_init: np.ndarray
+    ctrl_init: np.ndarray
+    xfrc_zero: np.ndarray
 
 
 class MujocoWarpBackend:
@@ -140,7 +171,24 @@ class MujocoWarpBackend:
 
         from handcdo.warp_utils import inspect_warp_batch_capabilities
 
-        capabilities = inspect_warp_batch_capabilities(mjw)
+        eval_config = config or EvaluationConfig()
+        bundle = _build_warp_scene_bundle(
+            mjw=mjw,
+            design=design,
+            tool_name=tool_name,
+            geometry_config=geometry_config or GeometryConfig(),
+            tool_assets_dir=tool_assets_dir,
+            nworld=self.config.nworld,
+            nconmax=self.config.nconmax,
+            naconmax=self.config.naconmax,
+            njmax=self.config.njmax,
+        )
+        capabilities = inspect_warp_batch_capabilities(
+            mjw,
+            warp_model=bundle.warp_model,
+            warp_data=bundle.warp_data,
+            nworld=self.config.nworld,
+        )
         if not capabilities.supports_true_fixed_grasp_batching:
             self.last_batch_metadata = self._metadata(
                 num_grasps=num_grasps,
@@ -148,27 +196,43 @@ class MujocoWarpBackend:
                 failure_count=num_grasps,
                 seconds_total=time.perf_counter() - start,
                 capabilities=capabilities,
+                mjcf_rewrites=bundle.mjcf_rewrites,
                 failure_reason=TRUE_BATCH_INIT_UNAVAILABLE_MESSAGE,
             )
-            raise NotImplementedError(TRUE_BATCH_INIT_UNAVAILABLE_MESSAGE)
+            raise MujocoWarpCapabilityError(TRUE_BATCH_INIT_UNAVAILABLE_MESSAGE)
 
-        # PR11-d deliberately does not implement the per-world mutation path
-        # until a concrete installed MuJoCo Warp API exposes safe qpos/ctrl
-        # writes for every world in one batched data object. The required future
-        # sequence is: create/reset one batched data object per chunk, map each
-        # grasp to one world, set tool free-joint pose and hand controls per
-        # world, close and settle all worlds together, snapshot settled per-world
-        # state, restore each world before every wrench disturbance, then reduce
-        # scores back to input order.
+        evaluations: list[GraspEvaluation] = []
+        world_steps = 0
+        for offset in range(0, num_grasps, self.config.nworld):
+            chunk = grasps[offset : offset + self.config.nworld]
+            evaluations.extend(
+                _evaluate_grasp_chunk_true_warp(
+                    mjw=mjw,
+                    bundle=bundle,
+                    design=design,
+                    tool_name=tool_name,
+                    grasps=chunk,
+                    config=eval_config,
+                )
+            )
+            world_steps += len(chunk) * (
+                eval_config.close_steps
+                + eval_config.settle_steps
+                + len(_wrench_directions()) * eval_config.wrench_steps
+            )
+        seconds_total = time.perf_counter() - start
+        failure_count = sum(1 for evaluation in evaluations if evaluation.failed)
         self.last_batch_metadata = self._metadata(
             num_grasps=num_grasps,
             num_chunks=num_chunks,
-            failure_count=num_grasps,
-            seconds_total=time.perf_counter() - start,
+            failure_count=failure_count,
+            seconds_total=seconds_total,
             capabilities=capabilities,
-            failure_reason=TRUE_BATCH_INIT_UNAVAILABLE_MESSAGE,
+            mjcf_rewrites=bundle.mjcf_rewrites,
+            grasps_per_second=num_grasps / seconds_total if seconds_total > 0 else None,
+            world_steps_per_second=world_steps / seconds_total if seconds_total > 0 else None,
         )
-        raise NotImplementedError(TRUE_BATCH_INIT_UNAVAILABLE_MESSAGE)
+        return evaluations
 
     def _evaluate_grasps_sequential_fallback(
         self,
@@ -241,6 +305,342 @@ class MujocoWarpBackend:
             f"{INSTALL_HINT}\n"
             f"Availability check failed: {reason}"
         )
+
+
+def _build_warp_scene_bundle(
+    *,
+    mjw: Any,
+    design: HandDesign,
+    tool_name: str,
+    geometry_config: GeometryConfig,
+    tool_assets_dir: str | Path,
+    nworld: int,
+    nconmax: int | None,
+    naconmax: int | None,
+    njmax: int,
+) -> WarpSceneBundle:
+    import mujoco
+
+    from handcdo.hand_model import build_hand_model
+    from handcdo.mjcf_generator import build_mjcf_xml
+    from handcdo.tools import get_tool
+    from handcdo.warp_utils import make_warp_data, prepare_warp_compatible_mjcf
+
+    tool = get_tool(tool_name)
+    xml = build_mjcf_xml(
+        build_hand_model(design),
+        tool=tool,
+        geometry_config=geometry_config,
+        tool_assets_dir=Path(tool_assets_dir),
+    )
+    with tempfile.TemporaryDirectory(prefix="handcdo_warp_mjcf_") as tmpdir:
+        original_path = Path(tmpdir) / "scene_original.xml"
+        warp_path = Path(tmpdir) / "scene_warp.xml"
+        original_path.write_text(xml, encoding="utf-8")
+        rewrite_info = prepare_warp_compatible_mjcf(original_path, warp_path)
+        mj_model = mujoco.MjModel.from_xml_path(str(warp_path))
+
+    mj_data = mujoco.MjData(mj_model)
+    warp_model = mjw.put_model(mj_model)
+    warp_data = make_warp_data(
+        mjw,
+        warp_model,
+        mj_model,
+        mj_data,
+        nworld=nworld,
+        nconmax=nconmax,
+        naconmax=naconmax,
+        njmax=njmax,
+    )
+
+    tool_body_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, "tool")
+    if tool_body_id < 0:
+        raise ValueError("MJCF is missing required body named 'tool'")
+    tool_joint_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_JOINT, "tool_free")
+    if tool_joint_id < 0:
+        raise ValueError("MJCF is missing required free joint named 'tool_free'")
+    actuator_names = [
+        mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_ACTUATOR, i) or ""
+        for i in range(mj_model.nu)
+    ]
+    return WarpSceneBundle(
+        mj_model=mj_model,
+        mj_data=mj_data,
+        warp_model=warp_model,
+        warp_data=warp_data,
+        tool=tool,
+        tool_body_id=int(tool_body_id),
+        tool_qpos_addr=int(mj_model.jnt_qposadr[tool_joint_id]),
+        actuator_names=actuator_names,
+        nworld=nworld,
+        mjcf_rewrites=list(rewrite_info.get("mjcf_rewrites", [])),
+    )
+
+
+def build_batched_initial_state(
+    bundle: WarpSceneBundle,
+    grasps: list[GraspParams],
+    config: EvaluationConfig,
+) -> BatchedInitialState:
+    del config
+    batch = len(grasps)
+    if batch > bundle.nworld:
+        raise ValueError(f"batch size {batch} exceeds nworld={bundle.nworld}")
+    if bundle.tool_qpos_addr < 0 or bundle.tool_qpos_addr + 7 > int(bundle.mj_model.nq):
+        raise ValueError("Invalid tool free-joint qpos address for batched initialization")
+    if len(bundle.actuator_names) != int(bundle.mj_model.nu):
+        raise ValueError("Actuator metadata does not match MuJoCo model.nu")
+
+    qpos_init = np.zeros((batch, int(bundle.mj_model.nq)), dtype=float)
+    qvel_init = np.zeros((batch, int(bundle.mj_model.nv)), dtype=float)
+    ctrl_init = np.zeros((batch, int(bundle.mj_model.nu)), dtype=float)
+    xfrc_zero = np.zeros((batch, int(bundle.mj_model.nbody), 6), dtype=float)
+    base_qpos = np.array(bundle.mj_data.qpos, dtype=float, copy=True)
+
+    for world_index, grasp in enumerate(grasps):
+        qpos_init[world_index] = base_qpos
+        addr = bundle.tool_qpos_addr
+        qpos_init[world_index, addr : addr + 3] = np.array(bundle.tool.reference_pos) + np.array(
+            [grasp.dx, grasp.dy, grasp.dz]
+        )
+        qpos_init[world_index, addr + 3 : addr + 7] = _grasp_quat_xyz(grasp)
+        for actuator_index, name in enumerate(bundle.actuator_names):
+            base = grasp.thumb_closure if name.startswith("thumb") else grasp.closure
+            ctrl_init[world_index, actuator_index] = np.clip(
+                base + grasp.spread_bias * (actuator_index % 2),
+                -0.25,
+                1.3,
+            )
+
+    return BatchedInitialState(
+        qpos_init=qpos_init,
+        qvel_init=qvel_init,
+        ctrl_init=ctrl_init,
+        xfrc_zero=xfrc_zero,
+    )
+
+
+def _evaluate_grasp_chunk_true_warp(
+    *,
+    mjw: Any,
+    bundle: WarpSceneBundle,
+    design: HandDesign,
+    tool_name: str,
+    grasps: list[GraspParams],
+    config: EvaluationConfig,
+) -> list[GraspEvaluation]:
+    from handcdo.warp_utils import synchronize_warp
+    from handcdo.wrench_score import aggregate_wrench_results
+
+    if not grasps:
+        return []
+
+    initial = build_batched_initial_state(bundle, grasps, config)
+    batch = len(grasps)
+    _write_batch_state(mjw, bundle.warp_data, initial.qpos_init, initial.qvel_init, initial.ctrl_init, initial.xfrc_zero)
+    for _ in range(config.close_steps + config.settle_steps):
+        _warp_step(mjw, bundle.warp_model, bundle.warp_data)
+    synchronize_warp()
+    settled_qpos = _read_required_field(bundle.warp_data, "qpos", batch)
+    settled_qvel = _read_required_field(bundle.warp_data, "qvel", batch)
+    settled_ctrl = _read_required_field(bundle.warp_data, "ctrl", batch)
+
+    per_grasp_results = [[] for _ in grasps]
+    for direction_name, force_dir, torque_dir in _wrench_directions():
+        _write_batch_state(mjw, bundle.warp_data, settled_qpos, settled_qvel, settled_ctrl, initial.xfrc_zero)
+        _warp_forward(mjw, bundle.warp_model, bundle.warp_data)
+        synchronize_warp()
+        start_pos = _read_tool_positions(bundle.warp_data, bundle.tool_body_id, batch)
+        start_mat = _read_tool_mats(bundle.warp_data, bundle.tool_body_id, batch)
+        stable_steps = np.full(batch, int(config.wrench_steps), dtype=int)
+        max_trans = np.zeros(batch, dtype=float)
+        max_rot = np.zeros(batch, dtype=float)
+        failed = np.zeros(batch, dtype=bool)
+        xfrc = np.array(initial.xfrc_zero, copy=True)
+        for step in range(config.wrench_steps):
+            scale = (step + 1) / max(config.wrench_steps, 1)
+            xfrc[:, bundle.tool_body_id, :3] = force_dir * bundle.tool.force_limit * scale
+            xfrc[:, bundle.tool_body_id, 3:] = torque_dir * bundle.tool.torque_limit * scale
+            _write_required_field(mjw, bundle.warp_data, "xfrc_applied", xfrc)
+            _warp_step(mjw, bundle.warp_model, bundle.warp_data)
+            synchronize_warp()
+            positions = _read_tool_positions(bundle.warp_data, bundle.tool_body_id, batch)
+            mats = _read_tool_mats(bundle.warp_data, bundle.tool_body_id, batch)
+            trans = np.linalg.norm(positions - start_pos, axis=1)
+            rot = np.array([_rotation_error(start_mat[i], mats[i]) for i in range(batch)])
+            max_trans = np.maximum(max_trans, trans)
+            max_rot = np.maximum(max_rot, rot)
+            newly_failed = (~failed) & (
+                (trans > config.translation_threshold) | (rot > config.rotation_threshold_rad)
+            )
+            stable_steps[newly_failed] = step
+            failed |= newly_failed
+            if bool(np.all(failed)):
+                break
+        for world_index in range(batch):
+            per_grasp_results[world_index].append(
+                _wrench_result(
+                    direction_name,
+                    stable_steps=int(stable_steps[world_index]),
+                    total_steps=int(config.wrench_steps),
+                    max_translation=float(max_trans[world_index]),
+                    max_rotation=float(max_rot[world_index]),
+                    failed=bool(failed[world_index]),
+                )
+            )
+
+    return [
+        GraspEvaluation(
+            design_id=design.design_id,
+            tool=tool_name,
+            grasp=grasp.to_dict(),
+            score=aggregate_wrench_results(results),
+            wrench_results=[result.to_dict() for result in results],
+            failed=False,
+        )
+        for grasp, results in zip(grasps, per_grasp_results, strict=True)
+    ]
+
+
+def _write_batch_state(
+    mjw: Any,
+    warp_data: Any,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+    ctrl: np.ndarray,
+    xfrc_applied: np.ndarray,
+) -> None:
+    _write_required_field(mjw, warp_data, "qpos", qpos)
+    _write_required_field(mjw, warp_data, "qvel", qvel)
+    _write_required_field(mjw, warp_data, "ctrl", ctrl)
+    _write_required_field(mjw, warp_data, "xfrc_applied", xfrc_applied)
+
+
+def _write_required_field(mjw: Any, warp_data: Any, field_name: str, value: np.ndarray) -> None:
+    from handcdo import warp_utils
+
+    field = getattr(warp_data, field_name, None)
+    if field is None:
+        raise MujocoWarpCapabilityError(f"MuJoCo Warp data is missing required field {field_name!r}")
+    try:
+        field[: value.shape[0], ...] = value
+        return
+    except Exception:
+        pass
+    errors: list[str] = []
+    for world_index in range(int(value.shape[0])):
+        wrote, method, reason = warp_utils._try_write_field_per_world(
+            field,
+            field_name=field_name,
+            world_index=world_index,
+            value=value[world_index],
+            mjw=mjw,
+        )
+        if not wrote:
+            errors.append(f"world {world_index}: {method}: {reason}")
+    if errors:
+        raise MujocoWarpCapabilityError(
+            f"Could not write per-world MuJoCo Warp field {field_name!r}: {'; '.join(errors)}"
+        )
+
+
+def _read_required_field(warp_data: Any, field_name: str, batch: int) -> np.ndarray:
+    from handcdo import warp_utils
+
+    field = getattr(warp_data, field_name, None)
+    if field is None:
+        raise MujocoWarpCapabilityError(f"MuJoCo Warp data is missing required field {field_name!r}")
+    array = warp_utils._field_host_array(field)
+    if array is None:
+        raise MujocoWarpCapabilityError(f"Could not copy MuJoCo Warp field {field_name!r} to host")
+    if array.shape[0] < batch:
+        raise MujocoWarpCapabilityError(
+            f"MuJoCo Warp field {field_name!r} has leading dimension {array.shape[0]}, expected at least {batch}"
+        )
+    return np.array(array[:batch], dtype=float, copy=True)
+
+
+def _read_tool_positions(warp_data: Any, tool_body_id: int, batch: int) -> np.ndarray:
+    xpos = _read_required_field(warp_data, "xpos", batch)
+    return np.array(xpos[:, tool_body_id, :3], dtype=float, copy=True)
+
+
+def _read_tool_mats(warp_data: Any, tool_body_id: int, batch: int) -> np.ndarray:
+    xmat = _read_required_field(warp_data, "xmat", batch)
+    mats = xmat[:, tool_body_id]
+    return np.array(mats.reshape((batch, 9)), dtype=float, copy=True)
+
+
+def _warp_step(mjw: Any, warp_model: Any, warp_data: Any) -> None:
+    step = getattr(mjw, "step", None)
+    if not callable(step):
+        raise MujocoWarpCapabilityError("mujoco_warp.step is unavailable")
+    for args in ((warp_model, warp_data), (warp_data,), (warp_model, warp_data, None)):
+        try:
+            step(*args)
+            return
+        except TypeError:
+            continue
+    step(warp_model, warp_data)
+
+
+def _warp_forward(mjw: Any, warp_model: Any, warp_data: Any) -> None:
+    for name in ("forward", "mj_forward"):
+        forward = getattr(mjw, name, None)
+        if not callable(forward):
+            continue
+        for args in ((warp_model, warp_data), (warp_data,)):
+            try:
+                forward(*args)
+                return
+            except TypeError:
+                continue
+    raise MujocoWarpCapabilityError(
+        "mujoco_warp does not expose a forward/kinematics-equivalent update needed "
+        "before wrench start-pose measurement"
+    )
+
+
+def _grasp_quat_xyz(grasp: GraspParams) -> np.ndarray:
+    import mujoco
+
+    quat = np.zeros(4, dtype=float)
+    mujoco.mju_euler2Quat(quat, np.array([grasp.roll, grasp.pitch, grasp.yaw], dtype=float), "XYZ")
+    return quat
+
+
+def _rotation_error(r0: np.ndarray, r1: np.ndarray) -> float:
+    from handcdo.wrench_score import rotation_error_from_mats
+
+    return rotation_error_from_mats(np.asarray(r0).reshape(9), np.asarray(r1).reshape(9))
+
+
+def _wrench_result(
+    direction: str,
+    *,
+    stable_steps: int,
+    total_steps: int,
+    max_translation: float,
+    max_rotation: float,
+    failed: bool,
+):
+    from handcdo.wrench_score import WrenchDirectionResult
+
+    return WrenchDirectionResult(
+        direction=direction,
+        stable_steps=stable_steps,
+        total_steps=total_steps,
+        normalized_duration=float(stable_steps / max(total_steps, 1)),
+        max_translation=max_translation,
+        max_rotation_rad=max_rotation,
+        failed=failed,
+    )
+
+
+def _wrench_directions():
+    from handcdo.wrench_score import WRENCH_DIRECTIONS
+
+    return WRENCH_DIRECTIONS
 
 
 def _validate_positive_int(value: int, name: str) -> None:
