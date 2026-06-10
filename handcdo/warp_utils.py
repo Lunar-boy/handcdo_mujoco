@@ -32,6 +32,7 @@ class WarpBatchCapabilities:
     can_put_data: bool
     can_make_data: bool
     can_step: bool
+    can_forward: bool
 
     accepted_data_allocation_kwargs: list[str]
     data_allocation_probe_error: str | None
@@ -47,10 +48,14 @@ class WarpBatchCapabilities:
     has_qvel: bool = False
     has_ctrl: bool = False
     has_xfrc_applied: bool = False
+    has_xpos: bool = False
+    has_xmat: bool = False
     qpos_is_batched: bool = False
     qvel_is_batched: bool = False
     ctrl_is_batched: bool = False
     xfrc_is_batched: bool = False
+    xpos_is_batched: bool = False
+    xmat_is_batched: bool = False
     qpos_write_tested: bool = False
     qvel_write_tested: bool = False
     ctrl_write_tested: bool = False
@@ -59,6 +64,7 @@ class WarpBatchCapabilities:
     qvel_write_method: str | None = None
     ctrl_write_method: str | None = None
     xfrc_write_method: str | None = None
+    kinematics_update_method: str | None = None
 
     @property
     def supports_true_fixed_grasp_batching(self) -> bool:
@@ -67,14 +73,19 @@ class WarpBatchCapabilities:
             and self.can_put_model
             and (self.can_put_data or self.can_make_data)
             and self.can_step
+            and (self.can_forward or self.kinematics_update_method is not None)
             and self.has_qpos
             and self.has_qvel
             and self.has_ctrl
             and self.has_xfrc_applied
+            and self.has_xpos
+            and self.has_xmat
             and self.qpos_is_batched
             and self.qvel_is_batched
             and self.ctrl_is_batched
             and self.xfrc_is_batched
+            and self.xpos_is_batched
+            and self.xmat_is_batched
             and self.can_set_per_world_qpos
             and self.can_set_per_world_qvel
             and self.can_set_per_world_ctrl
@@ -494,6 +505,46 @@ def smoke_test_warp_per_world_state_write(
     return {"ok": ok, "fields": fields, "reason": reason}
 
 
+def _required_batching_reasons(
+    *,
+    import_available: bool,
+    can_put_model: bool,
+    can_put_data: bool,
+    can_make_data: bool,
+    can_step: bool,
+    can_forward: bool,
+    kinematics_update_method: str | None,
+    field_reports: dict[str, dict[str, Any]],
+    nworld: int | None,
+) -> list[str]:
+    reasons: list[str] = []
+    if not import_available:
+        reasons.append("mujoco_warp import unavailable")
+    if not can_put_model:
+        reasons.append("missing required MuJoCo Warp put_model")
+    if not (can_put_data or can_make_data):
+        reasons.append("missing required MuJoCo Warp put_data/make_data")
+    if not can_step:
+        reasons.append("missing required MuJoCo Warp step")
+    if not (can_forward or kinematics_update_method is not None):
+        reasons.append("missing required MuJoCo Warp forward/kinematics update")
+    for field_name in ("qpos", "qvel", "ctrl", "xfrc_applied"):
+        report = field_reports.get(field_name, {})
+        if not report.get("present", False):
+            reasons.append(f"warp_data.{field_name} is absent")
+        elif not report.get("batched", False):
+            reasons.append(f"warp_data.{field_name} does not have leading nworld={nworld}")
+        elif not report.get("write_tested", False):
+            reasons.append(f"warp_data.{field_name} lacks verified per-world write support")
+    for field_name in ("xpos", "xmat"):
+        report = field_reports.get(field_name, {})
+        if not report.get("present", False):
+            reasons.append(f"warp_data.{field_name} is absent")
+        elif not report.get("batched", False):
+            reasons.append(f"warp_data.{field_name} does not have leading nworld={nworld}")
+    return reasons
+
+
 def inspect_warp_batch_capabilities(
     mjw: Any | None = None,
     *,
@@ -511,6 +562,7 @@ def inspect_warp_batch_capabilities(
                 can_put_data=False,
                 can_make_data=False,
                 can_step=False,
+                can_forward=False,
                 accepted_data_allocation_kwargs=[],
                 data_allocation_probe_error=reason,
                 can_set_per_world_qpos=False,
@@ -531,11 +583,19 @@ def inspect_warp_batch_capabilities(
         "per-world qpos/qvel/ctrl/xfrc mutation on a batched data object. "
         "Batched stepping alone is insufficient for fixed-grasp scoring."
     )
+    can_put_model = hasattr(mjw, "put_model")
+    can_put_data = hasattr(mjw, "put_data")
+    can_make_data = hasattr(mjw, "make_data")
+    can_step = hasattr(mjw, "step")
+    can_forward = callable(getattr(mjw, "forward", None)) or callable(getattr(mjw, "mj_forward", None))
+    kinematics_update_method = "forward" if callable(getattr(mjw, "forward", None)) else None
+    if kinematics_update_method is None and callable(getattr(mjw, "mj_forward", None)):
+        kinematics_update_method = "mj_forward"
     field_reports: dict[str, dict[str, Any]] = {}
+    inferred_nworld = nworld
     if warp_data is not None:
-        inferred_nworld = nworld
         if inferred_nworld is None:
-            for field_name in ("qpos", "qvel", "ctrl", "xfrc_applied"):
+            for field_name in ("qpos", "qvel", "ctrl", "xfrc_applied", "xpos", "xmat"):
                 shape = _shape_of(getattr(warp_data, field_name, None))
                 if shape is not None and len(shape) >= 2:
                     inferred_nworld = shape[0]
@@ -544,7 +604,26 @@ def inspect_warp_batch_capabilities(
             inferred_nworld = 0
         smoke = smoke_test_warp_per_world_state_write(warp_data, nworld=inferred_nworld, mjw=mjw)
         field_reports = smoke["fields"]
-        true_fixed_grasp_batching_reason = smoke["reason"]
+        for readback_field in ("xpos", "xmat"):
+            field_reports[readback_field] = _field_report(
+                warp_data,
+                readback_field,
+                nworld=inferred_nworld,
+                write_test=False,
+                mjw=mjw,
+            )
+        reasons = _required_batching_reasons(
+            import_available=True,
+            can_put_model=can_put_model,
+            can_put_data=can_put_data,
+            can_make_data=can_make_data,
+            can_step=can_step,
+            can_forward=can_forward,
+            kinematics_update_method=kinematics_update_method,
+            field_reports=field_reports,
+            nworld=inferred_nworld,
+        )
+        true_fixed_grasp_batching_reason = "all required true fixed-grasp batching capabilities verified" if not reasons else "; ".join(reasons)
     elif warp_model is not None:
         data_allocation_probe_error = (
             "not probed: warp_model was provided without mj_model/mj_data; "
@@ -552,10 +631,11 @@ def inspect_warp_batch_capabilities(
         )
 
     return WarpBatchCapabilities(
-        can_put_model=hasattr(mjw, "put_model"),
-        can_put_data=hasattr(mjw, "put_data"),
-        can_make_data=hasattr(mjw, "make_data"),
-        can_step=hasattr(mjw, "step"),
+        can_put_model=can_put_model,
+        can_put_data=can_put_data,
+        can_make_data=can_make_data,
+        can_step=can_step,
+        can_forward=can_forward,
         accepted_data_allocation_kwargs=[],
         data_allocation_probe_error=data_allocation_probe_error,
         true_fixed_grasp_batching_reason=true_fixed_grasp_batching_reason,
@@ -563,10 +643,14 @@ def inspect_warp_batch_capabilities(
         has_qvel=field_reports.get("qvel", {}).get("present", False),
         has_ctrl=field_reports.get("ctrl", {}).get("present", False),
         has_xfrc_applied=field_reports.get("xfrc_applied", {}).get("present", False),
+        has_xpos=field_reports.get("xpos", {}).get("present", False),
+        has_xmat=field_reports.get("xmat", {}).get("present", False),
         qpos_is_batched=field_reports.get("qpos", {}).get("batched", False),
         qvel_is_batched=field_reports.get("qvel", {}).get("batched", False),
         ctrl_is_batched=field_reports.get("ctrl", {}).get("batched", False),
         xfrc_is_batched=field_reports.get("xfrc_applied", {}).get("batched", False),
+        xpos_is_batched=field_reports.get("xpos", {}).get("batched", False),
+        xmat_is_batched=field_reports.get("xmat", {}).get("batched", False),
         qpos_write_tested=field_reports.get("qpos", {}).get("write_tested", False),
         qvel_write_tested=field_reports.get("qvel", {}).get("write_tested", False),
         ctrl_write_tested=field_reports.get("ctrl", {}).get("write_tested", False),
@@ -579,6 +663,7 @@ def inspect_warp_batch_capabilities(
         can_set_per_world_qvel=field_reports.get("qvel", {}).get("write_tested", False),
         can_set_per_world_ctrl=field_reports.get("ctrl", {}).get("write_tested", False),
         can_set_per_world_xfrc=field_reports.get("xfrc_applied", {}).get("write_tested", False),
+        kinematics_update_method=kinematics_update_method,
     )
 
 
@@ -588,6 +673,8 @@ def warp_capabilities_payload(capabilities: WarpBatchCapabilities) -> dict[str, 
         "can_put_data": capabilities.can_put_data,
         "can_make_data": capabilities.can_make_data,
         "can_step": capabilities.can_step,
+        "can_forward": capabilities.can_forward,
+        "kinematics_update_method": capabilities.kinematics_update_method,
         "accepted_data_allocation_kwargs": capabilities.accepted_data_allocation_kwargs,
         "data_allocation_probe_error": capabilities.data_allocation_probe_error,
         "import_available": capabilities.import_available,
@@ -595,10 +682,14 @@ def warp_capabilities_payload(capabilities: WarpBatchCapabilities) -> dict[str, 
         "has_qvel": capabilities.has_qvel,
         "has_ctrl": capabilities.has_ctrl,
         "has_xfrc_applied": capabilities.has_xfrc_applied,
+        "has_xpos": capabilities.has_xpos,
+        "has_xmat": capabilities.has_xmat,
         "qpos_is_batched": capabilities.qpos_is_batched,
         "qvel_is_batched": capabilities.qvel_is_batched,
         "ctrl_is_batched": capabilities.ctrl_is_batched,
         "xfrc_is_batched": capabilities.xfrc_is_batched,
+        "xpos_is_batched": capabilities.xpos_is_batched,
+        "xmat_is_batched": capabilities.xmat_is_batched,
         "qpos_write_tested": capabilities.qpos_write_tested,
         "qvel_write_tested": capabilities.qvel_write_tested,
         "ctrl_write_tested": capabilities.ctrl_write_tested,
@@ -633,15 +724,66 @@ def warp_batch_metadata(
     world_steps_per_second: float | None = None,
     capabilities: WarpBatchCapabilities | None = None,
     failure_reason: str | None = None,
+    true_batched_scoring: bool | None = None,
+    per_world_state_init: bool | None = None,
+    scene_build_ok: bool = False,
+    capability_probe_ok: bool = False,
+    warmup_completed: bool = False,
+    warmup_requested_steps: int = 0,
+    warmup_executed_steps: int = 0,
+    warmup_seconds: float = 0.0,
+    warmup_reason: str | None = None,
+    capture_graph_requested: bool = False,
+    capture_graph_enabled: bool = False,
+    capture_graph_reason: str | None = "disabled",
+    capture_graph_sections: list[str] | None = None,
+    capture_graph_replay_count: int = 0,
+    completed_chunks: int = 0,
+    failed_chunks: int = 0,
+    chunk_reset_strategy: str = "unknown",
+    chunk_reset_count: int = 0,
+    inactive_worlds_zeroed: bool = False,
+    sync_strategy: str = "phase_boundary_and_readback_interval",
+    readback_interval: int = 1,
+    sync_count: int | None = None,
+    host_readback_count: int | None = None,
+    readback_semantics: str = "per-step threshold detection",
 ) -> dict[str, Any]:
+    inferred_true_batched = num_grasps > 0 and not sequential_fallback and failure_reason is None
+    if true_batched_scoring is None:
+        true_batched_scoring = inferred_true_batched
+    if per_world_state_init is None:
+        per_world_state_init = inferred_true_batched
     payload: dict[str, Any] = {
         "backend": "mujoco_warp",
         "experimental": True,
         "score_semantics": score_semantics,
-        "true_batched_scoring": num_grasps > 0 and not sequential_fallback and failure_reason is None,
-        "per_world_state_init": num_grasps > 0 and not sequential_fallback and failure_reason is None,
+        "true_batched_scoring": bool(true_batched_scoring),
+        "per_world_state_init": bool(per_world_state_init),
         "wrench_directions": 12,
         "include_in_multifidelity": False,
+        "scene_build_ok": scene_build_ok,
+        "capability_probe_ok": capability_probe_ok,
+        "warmup_completed": warmup_completed,
+        "warmup_requested_steps": int(warmup_requested_steps),
+        "warmup_executed_steps": int(warmup_executed_steps),
+        "warmup_seconds": float(warmup_seconds),
+        "warmup_reason": warmup_reason,
+        "capture_graph_requested": capture_graph_requested,
+        "capture_graph_enabled": capture_graph_enabled,
+        "capture_graph_reason": capture_graph_reason,
+        "capture_graph_sections": capture_graph_sections or [],
+        "capture_graph_replay_count": int(capture_graph_replay_count),
+        "completed_chunks": int(completed_chunks),
+        "failed_chunks": int(failed_chunks),
+        "chunk_reset_strategy": chunk_reset_strategy,
+        "chunk_reset_count": int(chunk_reset_count),
+        "inactive_worlds_zeroed": bool(inactive_worlds_zeroed),
+        "sync_strategy": sync_strategy,
+        "readback_interval": int(readback_interval),
+        "sync_count": sync_count,
+        "host_readback_count": host_readback_count,
+        "readback_semantics": readback_semantics,
         "nworld": nworld,
         "nconmax": nconmax,
         "naconmax": naconmax,

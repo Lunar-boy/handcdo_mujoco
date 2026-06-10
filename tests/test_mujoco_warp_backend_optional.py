@@ -50,6 +50,9 @@ def _fake_bundle(nworld=2):
         tool_qpos_addr=0,
         actuator_names=["finger1_pos", "thumb1_pos"],
         nworld=nworld,
+        nconmax=64,
+        naconmax=None,
+        njmax=128,
         mjcf_rewrites=[],
     )
 
@@ -60,6 +63,7 @@ def _capabilities(supports: bool):
         can_put_data=True,
         can_make_data=False,
         can_step=True,
+        can_forward=supports,
         accepted_data_allocation_kwargs=[],
         data_allocation_probe_error=None,
         can_set_per_world_qpos=supports,
@@ -71,14 +75,19 @@ def _capabilities(supports: bool):
         has_qvel=supports,
         has_ctrl=supports,
         has_xfrc_applied=supports,
+        has_xpos=supports,
+        has_xmat=supports,
         qpos_is_batched=supports,
         qvel_is_batched=supports,
         ctrl_is_batched=supports,
         xfrc_is_batched=supports,
+        xpos_is_batched=supports,
+        xmat_is_batched=supports,
         qpos_write_tested=supports,
         qvel_write_tested=supports,
         ctrl_write_tested=supports,
         xfrc_write_tested=supports,
+        kinematics_update_method="forward" if supports else None,
     )
 
 
@@ -163,6 +172,7 @@ def test_missing_mujoco_warp_does_not_break_cpu_backend_construction(monkeypatch
         ({"warmup_steps": -1}, "warmup_steps"),
         ({"capture_graph": "yes"}, "capture_graph"),
         ({"allow_sequential_fallback": "no"}, "allow_sequential_fallback"),
+        ({"readback_interval": 0}, "readback_interval"),
     ],
 )
 def test_invalid_constructor_values_are_rejected_before_optional_import(monkeypatch, kwargs, match):
@@ -297,7 +307,7 @@ def test_true_warp_batch_path_chunks_by_nworld_and_sets_metadata(monkeypatch):
                 wrench_results=[],
             )
             for grasp in grasps
-        ]
+        ], mujoco_warp.WarpChunkStats("reset_data", 1, True, 0, 0)
 
     monkeypatch.setattr(mujoco_warp, "_evaluate_grasp_chunk_true_warp", fake_evaluate_chunk)
     design = SimpleNamespace(design_id="design-true-warp")
@@ -315,6 +325,217 @@ def test_true_warp_batch_path_chunks_by_nworld_and_sets_metadata(monkeypatch):
     assert metadata["per_world_state_init"] is True
     assert metadata["wrench_directions"] == 12
     assert metadata["sequential_fallback"] is False
+    assert metadata["failure_reason"] is None
+
+
+def test_scene_build_failure_leaves_failure_metadata(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(warp_utils, "check_warp_available", lambda: WarpAvailability(True, None, "mujoco_warp", "test"))
+    monkeypatch.setitem(sys.modules, "mujoco_warp", SimpleNamespace())
+
+    def fail_scene(**kwargs):
+        raise RuntimeError("scene boom")
+
+    monkeypatch.setattr(mujoco_warp, "_build_warp_scene_bundle", fail_scene)
+    backend = MujocoWarpBackend(nworld=2)
+
+    with pytest.raises(RuntimeError, match="scene boom"):
+        backend.evaluate_grasps_batch(SimpleNamespace(design_id="d"), "hammer", [_grasp()], None)
+
+    metadata = backend.last_batch_metadata
+    assert metadata["scene_build_ok"] is False
+    assert metadata["true_batched_scoring"] is False
+    assert metadata["failure_count"] == 1
+    assert "RuntimeError: scene boom" in metadata["failure_reason"]
+
+
+def test_capability_probe_exception_leaves_failure_metadata(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(warp_utils, "check_warp_available", lambda: WarpAvailability(True, None, "mujoco_warp", "test"))
+    monkeypatch.setitem(sys.modules, "mujoco_warp", SimpleNamespace())
+    monkeypatch.setattr(mujoco_warp, "_build_warp_scene_bundle", lambda **kwargs: _fake_bundle(nworld=2))
+
+    def fail_probe(*args, **kwargs):
+        raise RuntimeError("probe boom")
+
+    monkeypatch.setattr(warp_utils, "inspect_warp_batch_capabilities", fail_probe)
+    backend = MujocoWarpBackend(nworld=2)
+
+    with pytest.raises(RuntimeError, match="probe boom"):
+        backend.evaluate_grasps_batch(SimpleNamespace(design_id="d"), "hammer", [_grasp()], None)
+
+    metadata = backend.last_batch_metadata
+    assert metadata["scene_build_ok"] is True
+    assert metadata["capability_probe_ok"] is False
+    assert metadata["true_batched_scoring"] is False
+    assert "RuntimeError: probe boom" in metadata["failure_reason"]
+
+
+def test_chunk_exception_leaves_truthful_partial_metadata(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(warp_utils, "check_warp_available", lambda: WarpAvailability(True, None, "mujoco_warp", "test"))
+    monkeypatch.setitem(sys.modules, "mujoco_warp", SimpleNamespace())
+    monkeypatch.setattr(mujoco_warp, "_build_warp_scene_bundle", lambda **kwargs: _fake_bundle(nworld=2))
+    monkeypatch.setattr(warp_utils, "inspect_warp_batch_capabilities", lambda *args, **kwargs: _capabilities(True))
+    calls = {"chunks": 0}
+
+    def fake_chunk(*, grasps, design, tool_name, **kwargs):
+        calls["chunks"] += 1
+        if calls["chunks"] == 2:
+            raise RuntimeError("chunk boom")
+        return [
+            GraspEvaluation(design.design_id, tool_name, grasp.to_dict(), 0.1, [])
+            for grasp in grasps
+        ], mujoco_warp.WarpChunkStats("reset_data", 1, True, 0, 0)
+
+    monkeypatch.setattr(mujoco_warp, "_evaluate_grasp_chunk_true_warp", fake_chunk)
+    backend = MujocoWarpBackend(nworld=2)
+    grasps = [_grasp(dx=0.0), _grasp(dx=0.1), _grasp(dx=0.2)]
+
+    with pytest.raises(RuntimeError, match="chunk boom"):
+        backend.evaluate_grasps_batch(SimpleNamespace(design_id="d"), "hammer", grasps, None)
+
+    metadata = backend.last_batch_metadata
+    assert metadata["completed_chunks"] == 1
+    assert metadata["failed_chunks"] == 1
+    assert metadata["true_batched_scoring"] is False
+    assert metadata["failure_count"] == len(grasps)
+    assert "RuntimeError: chunk boom" in metadata["failure_reason"]
+
+
+def test_warmup_steps_execute_before_scoring(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    step_calls = {"count": 0}
+
+    def step(*args):
+        step_calls["count"] += 1
+
+    fake_mjw = SimpleNamespace(step=step, forward=lambda *args: None, reset_data=lambda *args: None)
+    monkeypatch.setattr(warp_utils, "check_warp_available", lambda: WarpAvailability(True, None, "mujoco_warp", "test"))
+    monkeypatch.setitem(sys.modules, "mujoco_warp", fake_mjw)
+    monkeypatch.setattr(mujoco_warp, "_grasp_quat_xyz", lambda grasp: np.array([1.0, 0.0, 0.0, 0.0]))
+    monkeypatch.setattr(mujoco_warp, "_build_warp_scene_bundle", lambda **kwargs: _fake_bundle(nworld=2))
+    monkeypatch.setattr(warp_utils, "inspect_warp_batch_capabilities", lambda *args, **kwargs: _capabilities(True))
+
+    def fake_chunk(*, grasps, design, tool_name, **kwargs):
+        return [
+            GraspEvaluation(design.design_id, tool_name, grasp.to_dict(), 0.1, [])
+            for grasp in grasps
+        ], mujoco_warp.WarpChunkStats("reset_data", 1, True, 0, 0)
+
+    monkeypatch.setattr(mujoco_warp, "_evaluate_grasp_chunk_true_warp", fake_chunk)
+    backend = MujocoWarpBackend(nworld=2, warmup_steps=3)
+
+    backend.evaluate_grasps_batch(SimpleNamespace(design_id="d"), "hammer", [_grasp()], EvaluationConfig())
+
+    metadata = backend.last_batch_metadata
+    assert step_calls["count"] == 3
+    assert metadata["warmup_completed"] is True
+    assert metadata["warmup_executed_steps"] == 3
+    assert metadata["warmup_reason"] is None
+
+
+def test_warmup_failure_does_not_score_and_reports_failure(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    def step(*args):
+        raise RuntimeError("warmup step boom")
+
+    monkeypatch.setattr(warp_utils, "check_warp_available", lambda: WarpAvailability(True, None, "mujoco_warp", "test"))
+    monkeypatch.setitem(sys.modules, "mujoco_warp", SimpleNamespace(step=step, forward=lambda *args: None, reset_data=lambda *args: None))
+    monkeypatch.setattr(mujoco_warp, "_grasp_quat_xyz", lambda grasp: np.array([1.0, 0.0, 0.0, 0.0]))
+    monkeypatch.setattr(mujoco_warp, "_build_warp_scene_bundle", lambda **kwargs: _fake_bundle(nworld=2))
+    monkeypatch.setattr(warp_utils, "inspect_warp_batch_capabilities", lambda *args, **kwargs: _capabilities(True))
+
+    def fail_if_scored(*args, **kwargs):
+        raise AssertionError("scoring should not start after warmup failure")
+
+    monkeypatch.setattr(mujoco_warp, "_evaluate_grasp_chunk_true_warp", fail_if_scored)
+    backend = MujocoWarpBackend(nworld=2, warmup_steps=1)
+
+    with pytest.raises(RuntimeError, match="warmup step boom"):
+        backend.evaluate_grasps_batch(SimpleNamespace(design_id="d"), "hammer", [_grasp()], EvaluationConfig())
+
+    metadata = backend.last_batch_metadata
+    assert metadata["warmup_completed"] is False
+    assert metadata["completed_chunks"] == 0
+    assert metadata["true_batched_scoring"] is False
+    assert "RuntimeError: warmup step boom" in metadata["failure_reason"]
+
+
+def test_chunk_reset_clears_inactive_worlds_for_partial_chunk(monkeypatch):
+    from handcdo.backends import mujoco_warp
+
+    bundle = _fake_bundle(nworld=2)
+    bundle.warp_data.qpos[1, :] = 99.0
+    resets = {"count": 0}
+
+    def reset_data(*args):
+        resets["count"] += 1
+        bundle.warp_data.qpos[:] = 0.0
+        bundle.warp_data.qvel[:] = 0.0
+        bundle.warp_data.ctrl[:] = 0.0
+        bundle.warp_data.xfrc_applied[:] = 0.0
+
+    fake_mjw = SimpleNamespace(step=lambda *args: None, forward=lambda *args: None, reset_data=reset_data)
+    monkeypatch.setattr(mujoco_warp, "_grasp_quat_xyz", lambda grasp: np.array([1.0, 0.0, 0.0, 0.0]))
+
+    evaluations, stats = mujoco_warp._evaluate_grasp_chunk_true_warp(
+        mjw=fake_mjw,
+        bundle=bundle,
+        design=SimpleNamespace(design_id="d"),
+        tool_name="hammer",
+        grasps=[_grasp(dx=0.02)],
+        config=EvaluationConfig(close_steps=0, settle_steps=0, wrench_steps=1),
+        readback_interval=1,
+    )
+
+    assert len(evaluations) == 1
+    assert resets["count"] == 1
+    assert stats.reset_count == 1
+    assert stats.inactive_worlds_zeroed is True
+    np.testing.assert_allclose(bundle.warp_data.qpos[1], np.zeros(7))
+
+
+def test_capture_graph_request_is_reported_unsupported(monkeypatch):
+    from handcdo import warp_utils
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpBackend
+
+    monkeypatch.setattr(warp_utils, "check_warp_available", lambda: WarpAvailability(True, None, "mujoco_warp", "test"))
+    monkeypatch.setitem(sys.modules, "mujoco_warp", SimpleNamespace())
+    monkeypatch.setattr(mujoco_warp, "_build_warp_scene_bundle", lambda **kwargs: _fake_bundle(nworld=2))
+    monkeypatch.setattr(warp_utils, "inspect_warp_batch_capabilities", lambda *args, **kwargs: _capabilities(True))
+    monkeypatch.setattr(
+        mujoco_warp,
+        "_evaluate_grasp_chunk_true_warp",
+        lambda *, grasps, design, tool_name, **kwargs: (
+            [GraspEvaluation(design.design_id, tool_name, grasp.to_dict(), 0.1, []) for grasp in grasps],
+            mujoco_warp.WarpChunkStats("reset_data", 1, True, 0, 0),
+        ),
+    )
+    backend = MujocoWarpBackend(nworld=2, capture_graph=True)
+
+    backend.evaluate_grasps_batch(SimpleNamespace(design_id="d"), "hammer", [_grasp()], None)
+
+    metadata = backend.last_batch_metadata
+    assert metadata["capture_graph_requested"] is True
+    assert metadata["capture_graph_enabled"] is False
+    assert "unsupported" in metadata["capture_graph_reason"] or "not enabled" in metadata["capture_graph_reason"]
 
 
 def test_batch_refuses_when_true_per_world_initialization_is_unavailable(monkeypatch):
