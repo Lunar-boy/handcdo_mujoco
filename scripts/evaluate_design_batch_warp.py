@@ -70,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--njmax", type=_positive_int, default=128)
     parser.add_argument("--warmup-steps", type=_nonnegative_int, default=0)
     parser.add_argument("--capture-graph", action="store_true", default=False)
+    parser.add_argument("--readback-interval", type=_positive_int, default=1)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-designs", type=_positive_int, default=None)
     parser.add_argument("--require-warp", action="store_true", default=False)
@@ -139,6 +140,34 @@ def _empty_metadata(args: argparse.Namespace, *, num_grasps: int, failure_count:
         "warmup_steps": args.warmup_steps,
         "capture_graph": args.capture_graph,
         "batch_size": args.nworld,
+        "readback_interval": args.readback_interval,
+        "true_batched_scoring": False,
+        "per_world_state_init": False,
+        "wrench_directions": 12,
+        "include_in_multifidelity": False,
+        "scene_build_ok": False,
+        "capability_probe_ok": False,
+        "warmup_completed": False,
+        "warmup_requested_steps": args.warmup_steps,
+        "warmup_executed_steps": 0,
+        "warmup_seconds": 0.0,
+        "warmup_reason": "disabled" if args.warmup_steps == 0 else None,
+        "capture_graph_requested": args.capture_graph,
+        "capture_graph_enabled": False,
+        "capture_graph_reason": "disabled" if not args.capture_graph else None,
+        "capture_graph_sections": [],
+        "capture_graph_replay_count": 0,
+        "completed_chunks": 0,
+        "failed_chunks": 0,
+        "failed_tools": [],
+        "failure_reasons": [],
+        "chunk_reset_strategy": "unknown",
+        "chunk_reset_count": 0,
+        "inactive_worlds_zeroed": False,
+        "sync_strategy": "phase_boundary_and_readback_interval",
+        "sync_count": None,
+        "host_readback_count": None,
+        "readback_semantics": "per-step threshold detection",
         "num_grasps": num_grasps,
         "num_chunks": math.ceil(num_grasps / args.nworld) if num_grasps else 0,
         "seconds_total": 0.0,
@@ -168,27 +197,106 @@ def _normalize_backend_metadata(args: argparse.Namespace, metadata: dict[str, An
             "world_steps_per_second": metadata.get("world_steps_per_second"),
             "sequential_fallback": bool(metadata.get("sequential_fallback", False)),
             "mjcf_rewrites": metadata.get("mjcf_rewrites", []),
+            "true_batched_scoring": bool(metadata.get("true_batched_scoring", False)),
+            "per_world_state_init": bool(metadata.get("per_world_state_init", False)),
+            "wrench_directions": int(metadata.get("wrench_directions", 12)),
+            "include_in_multifidelity": bool(metadata.get("include_in_multifidelity", False)),
+            "readback_interval": int(metadata.get("readback_interval", args.readback_interval)),
         }
     )
+    for key in (
+        "scene_build_ok",
+        "capability_probe_ok",
+        "warmup_completed",
+        "warmup_requested_steps",
+        "warmup_executed_steps",
+        "warmup_seconds",
+        "warmup_reason",
+        "capture_graph_requested",
+        "capture_graph_enabled",
+        "capture_graph_reason",
+        "capture_graph_sections",
+        "capture_graph_replay_count",
+        "completed_chunks",
+        "failed_chunks",
+        "chunk_reset_strategy",
+        "chunk_reset_count",
+        "inactive_worlds_zeroed",
+        "sync_strategy",
+        "sync_count",
+        "host_readback_count",
+        "readback_semantics",
+    ):
+        if key in metadata:
+            normalized[key] = metadata[key]
     for key in ("warp_capabilities", "failure_reason"):
         if key in metadata:
             normalized[key] = metadata[key]
     return normalized
 
 
+def _metadata_int(item: dict[str, Any], key: str) -> int:
+    return int(item.get(key, 0) or 0)
+
+
+def _all_success_flag(tool_metadata: list[dict[str, Any]], key: str, *, failure_count: int) -> bool:
+    if not tool_metadata or failure_count != 0:
+        return False
+    return all(bool(item.get(key, False)) for item in tool_metadata)
+
+
 def _aggregate_tool_metadata(args: argparse.Namespace, tool_metadata: list[dict[str, Any]]) -> dict[str, Any]:
-    num_grasps = sum(int(item.get("num_grasps", 0)) for item in tool_metadata)
-    failure_count = sum(int(item.get("failure_count", 0)) for item in tool_metadata)
+    num_grasps = sum(_metadata_int(item, "num_grasps") for item in tool_metadata)
+    failure_count = sum(_metadata_int(item, "failure_count") for item in tool_metadata)
     seconds_total = sum(float(item.get("seconds_total", 0.0)) for item in tool_metadata)
+    failed_tools = [
+        str(item.get("tool"))
+        for item in tool_metadata
+        if item.get("tool") is not None and _metadata_int(item, "failure_count") > 0
+    ]
+    failure_reasons = [
+        str(item["failure_reason"])
+        for item in tool_metadata
+        if _metadata_int(item, "failure_count") > 0 and item.get("failure_reason")
+    ]
     metadata = _empty_metadata(args, num_grasps=num_grasps, failure_count=failure_count)
-    metadata["num_chunks"] = sum(int(item.get("num_chunks", 0)) for item in tool_metadata)
+    metadata["num_chunks"] = sum(_metadata_int(item, "num_chunks") for item in tool_metadata)
     metadata["seconds_total"] = seconds_total
     metadata["grasps_per_second"] = num_grasps / seconds_total if seconds_total > 0 else None
     metadata["sequential_fallback"] = any(bool(item.get("sequential_fallback", False)) for item in tool_metadata)
+    metadata["true_batched_scoring"] = _all_success_flag(
+        tool_metadata,
+        "true_batched_scoring",
+        failure_count=failure_count,
+    )
+    metadata["per_world_state_init"] = _all_success_flag(
+        tool_metadata,
+        "per_world_state_init",
+        failure_count=failure_count,
+    )
+    metadata["wrench_directions"] = 12
+    metadata["include_in_multifidelity"] = False
+    metadata["scene_build_ok"] = all(bool(item.get("scene_build_ok", False)) for item in tool_metadata) if tool_metadata else False
+    metadata["capability_probe_ok"] = all(bool(item.get("capability_probe_ok", False)) for item in tool_metadata) if tool_metadata else False
+    metadata["warmup_completed"] = _all_success_flag(tool_metadata, "warmup_completed", failure_count=failure_count)
+    metadata["warmup_executed_steps"] = sum(_metadata_int(item, "warmup_executed_steps") for item in tool_metadata)
+    metadata["warmup_seconds"] = sum(float(item.get("warmup_seconds", 0.0)) for item in tool_metadata)
+    metadata["capture_graph_requested"] = any(bool(item.get("capture_graph_requested", False)) for item in tool_metadata)
+    metadata["capture_graph_enabled"] = bool(tool_metadata) and all(
+        bool(item.get("capture_graph_enabled", False)) for item in tool_metadata
+    )
+    metadata["completed_chunks"] = sum(_metadata_int(item, "completed_chunks") for item in tool_metadata)
+    metadata["failed_chunks"] = sum(_metadata_int(item, "failed_chunks") for item in tool_metadata)
+    metadata["failed_tools"] = failed_tools
+    metadata["failure_reasons"] = failure_reasons
+    metadata["chunk_reset_count"] = sum(_metadata_int(item, "chunk_reset_count") for item in tool_metadata)
+    metadata["inactive_worlds_zeroed"] = all(bool(item.get("inactive_worlds_zeroed", False)) for item in tool_metadata) if tool_metadata else False
+    metadata["sync_count"] = sum(int(item.get("sync_count") or 0) for item in tool_metadata)
+    metadata["host_readback_count"] = sum(int(item.get("host_readback_count") or 0) for item in tool_metadata)
     metadata["mjcf_rewrites"] = [
         rewrite for item in tool_metadata for rewrite in item.get("mjcf_rewrites", [])
     ]
-    for key in ("warp_capabilities", "failure_reason"):
+    for key in ("warp_capabilities", "failure_reason", "capture_graph_reason", "chunk_reset_strategy", "readback_semantics"):
         values = [item[key] for item in tool_metadata if key in item]
         if values:
             metadata[key] = values[-1]
@@ -246,6 +354,7 @@ def evaluate_design_warp(
         warmup_steps=args.warmup_steps,
         capture_graph=args.capture_graph,
         allow_sequential_fallback=False,
+        readback_interval=args.readback_interval,
     )
 
     tool_results: list[dict[str, Any]] = []

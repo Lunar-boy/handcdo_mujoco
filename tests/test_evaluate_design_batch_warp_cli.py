@@ -209,6 +209,127 @@ def test_existing_warp_experimental_json_is_not_cpu_style_result(tmp_path):
     module._validate_results_dir_for_warp(results_dir, allow_mixed_backend_dir=False)
 
 
+def test_aggregate_tool_metadata_is_conservative_for_mixed_success_failure(tmp_path):
+    module = _load_script()
+    args = _args(module, tmp_path)
+    tool_metadata = [
+        {
+            "backend": "mujoco_warp",
+            "experimental": True,
+            "tool": "hammer",
+            "true_batched_scoring": True,
+            "per_world_state_init": True,
+            "warmup_completed": True,
+            "failure_count": 0,
+            "failure_reason": None,
+            "completed_chunks": 2,
+            "failed_chunks": 0,
+            "num_chunks": 2,
+        },
+        {
+            "backend": "mujoco_warp",
+            "experimental": True,
+            "tool": "spoon",
+            "true_batched_scoring": False,
+            "per_world_state_init": False,
+            "warmup_completed": False,
+            "failure_count": 4,
+            "failure_reason": "RuntimeError: fake failure",
+            "completed_chunks": 0,
+            "failed_chunks": 1,
+            "num_chunks": 1,
+        },
+    ]
+
+    aggregate = module._aggregate_tool_metadata(args, tool_metadata)
+
+    assert aggregate["failure_count"] == 4
+    assert aggregate["true_batched_scoring"] is False
+    assert aggregate["per_world_state_init"] is False
+    assert aggregate["warmup_completed"] is False
+    assert aggregate["completed_chunks"] == 2
+    assert aggregate["failed_chunks"] == 1
+    assert aggregate["failure_reasons"] == ["RuntimeError: fake failure"]
+    assert aggregate["failed_tools"] == ["spoon"]
+
+
+def test_aggregate_tool_metadata_reports_success_only_when_all_tools_succeed(tmp_path):
+    module = _load_script()
+    args = _args(module, tmp_path)
+    tool_metadata = [
+        {
+            "tool": "hammer",
+            "true_batched_scoring": True,
+            "per_world_state_init": True,
+            "warmup_completed": True,
+            "failure_count": 0,
+            "num_chunks": 1,
+        },
+        {
+            "tool": "spoon",
+            "true_batched_scoring": True,
+            "per_world_state_init": True,
+            "warmup_completed": True,
+            "failure_count": 0,
+            "num_chunks": 1,
+        },
+    ]
+
+    aggregate = module._aggregate_tool_metadata(args, tool_metadata)
+
+    assert aggregate["failure_count"] == 0
+    assert aggregate["true_batched_scoring"] is True
+    assert aggregate["per_world_state_init"] is True
+    assert aggregate["warmup_completed"] is True
+
+
+def test_aggregate_tool_metadata_missing_success_flags_are_not_inferred(tmp_path):
+    module = _load_script()
+    args = _args(module, tmp_path)
+    tool_metadata = [
+        {
+            "tool": "hammer",
+            "true_batched_scoring": True,
+            "per_world_state_init": True,
+            "warmup_completed": True,
+            "failure_count": 0,
+        },
+        {
+            "tool": "spoon",
+            "failure_count": 0,
+            "warmup_completed": True,
+        },
+    ]
+
+    aggregate = module._aggregate_tool_metadata(args, tool_metadata)
+
+    assert aggregate["failure_count"] == 0
+    assert aggregate["true_batched_scoring"] is False
+    assert aggregate["per_world_state_init"] is False
+    assert aggregate["warmup_completed"] is True
+
+
+def test_aggregate_tool_metadata_capture_graph_requested_any_enabled_all(tmp_path):
+    module = _load_script()
+    args = _args(module, tmp_path)
+    mixed_capture = [
+        {"tool": "hammer", "failure_count": 0, "capture_graph_requested": True, "capture_graph_enabled": False},
+        {"tool": "spoon", "failure_count": 0, "capture_graph_requested": False, "capture_graph_enabled": False},
+    ]
+    enabled_capture = [
+        {"tool": "hammer", "failure_count": 0, "capture_graph_requested": True, "capture_graph_enabled": True},
+        {"tool": "spoon", "failure_count": 0, "capture_graph_requested": False, "capture_graph_enabled": True},
+    ]
+
+    mixed = module._aggregate_tool_metadata(args, mixed_capture)
+    enabled = module._aggregate_tool_metadata(args, enabled_capture)
+
+    assert mixed["capture_graph_requested"] is True
+    assert mixed["capture_graph_enabled"] is False
+    assert enabled["capture_graph_requested"] is True
+    assert enabled["capture_graph_enabled"] is True
+
+
 def test_available_warp_path_uses_backend_and_writes_schema(tmp_path, monkeypatch):
     design = _write_design(tmp_path)
     module = _load_script()
