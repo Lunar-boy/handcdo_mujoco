@@ -159,6 +159,8 @@ def _empty_metadata(args: argparse.Namespace, *, num_grasps: int, failure_count:
         "capture_graph_replay_count": 0,
         "completed_chunks": 0,
         "failed_chunks": 0,
+        "failed_tools": [],
+        "failure_reasons": [],
         "chunk_reset_strategy": "unknown",
         "chunk_reset_count": 0,
         "inactive_worlds_zeroed": False,
@@ -233,29 +235,61 @@ def _normalize_backend_metadata(args: argparse.Namespace, metadata: dict[str, An
     return normalized
 
 
+def _metadata_int(item: dict[str, Any], key: str) -> int:
+    return int(item.get(key, 0) or 0)
+
+
+def _all_success_flag(tool_metadata: list[dict[str, Any]], key: str, *, failure_count: int) -> bool:
+    if not tool_metadata or failure_count != 0:
+        return False
+    return all(bool(item.get(key, False)) for item in tool_metadata)
+
+
 def _aggregate_tool_metadata(args: argparse.Namespace, tool_metadata: list[dict[str, Any]]) -> dict[str, Any]:
-    num_grasps = sum(int(item.get("num_grasps", 0)) for item in tool_metadata)
-    failure_count = sum(int(item.get("failure_count", 0)) for item in tool_metadata)
+    num_grasps = sum(_metadata_int(item, "num_grasps") for item in tool_metadata)
+    failure_count = sum(_metadata_int(item, "failure_count") for item in tool_metadata)
     seconds_total = sum(float(item.get("seconds_total", 0.0)) for item in tool_metadata)
+    failed_tools = [
+        str(item.get("tool"))
+        for item in tool_metadata
+        if item.get("tool") is not None and _metadata_int(item, "failure_count") > 0
+    ]
+    failure_reasons = [
+        str(item["failure_reason"])
+        for item in tool_metadata
+        if _metadata_int(item, "failure_count") > 0 and item.get("failure_reason")
+    ]
     metadata = _empty_metadata(args, num_grasps=num_grasps, failure_count=failure_count)
-    metadata["num_chunks"] = sum(int(item.get("num_chunks", 0)) for item in tool_metadata)
+    metadata["num_chunks"] = sum(_metadata_int(item, "num_chunks") for item in tool_metadata)
     metadata["seconds_total"] = seconds_total
     metadata["grasps_per_second"] = num_grasps / seconds_total if seconds_total > 0 else None
     metadata["sequential_fallback"] = any(bool(item.get("sequential_fallback", False)) for item in tool_metadata)
-    metadata["true_batched_scoring"] = any(bool(item.get("true_batched_scoring", False)) for item in tool_metadata)
-    metadata["per_world_state_init"] = any(bool(item.get("per_world_state_init", False)) for item in tool_metadata)
+    metadata["true_batched_scoring"] = _all_success_flag(
+        tool_metadata,
+        "true_batched_scoring",
+        failure_count=failure_count,
+    )
+    metadata["per_world_state_init"] = _all_success_flag(
+        tool_metadata,
+        "per_world_state_init",
+        failure_count=failure_count,
+    )
     metadata["wrench_directions"] = 12
     metadata["include_in_multifidelity"] = False
     metadata["scene_build_ok"] = all(bool(item.get("scene_build_ok", False)) for item in tool_metadata) if tool_metadata else False
     metadata["capability_probe_ok"] = all(bool(item.get("capability_probe_ok", False)) for item in tool_metadata) if tool_metadata else False
-    metadata["warmup_completed"] = all(bool(item.get("warmup_completed", False)) for item in tool_metadata) if tool_metadata else False
-    metadata["warmup_executed_steps"] = sum(int(item.get("warmup_executed_steps", 0)) for item in tool_metadata)
+    metadata["warmup_completed"] = _all_success_flag(tool_metadata, "warmup_completed", failure_count=failure_count)
+    metadata["warmup_executed_steps"] = sum(_metadata_int(item, "warmup_executed_steps") for item in tool_metadata)
     metadata["warmup_seconds"] = sum(float(item.get("warmup_seconds", 0.0)) for item in tool_metadata)
     metadata["capture_graph_requested"] = any(bool(item.get("capture_graph_requested", False)) for item in tool_metadata)
-    metadata["capture_graph_enabled"] = any(bool(item.get("capture_graph_enabled", False)) for item in tool_metadata)
-    metadata["completed_chunks"] = sum(int(item.get("completed_chunks", 0)) for item in tool_metadata)
-    metadata["failed_chunks"] = sum(int(item.get("failed_chunks", 0)) for item in tool_metadata)
-    metadata["chunk_reset_count"] = sum(int(item.get("chunk_reset_count", 0)) for item in tool_metadata)
+    metadata["capture_graph_enabled"] = bool(tool_metadata) and all(
+        bool(item.get("capture_graph_enabled", False)) for item in tool_metadata
+    )
+    metadata["completed_chunks"] = sum(_metadata_int(item, "completed_chunks") for item in tool_metadata)
+    metadata["failed_chunks"] = sum(_metadata_int(item, "failed_chunks") for item in tool_metadata)
+    metadata["failed_tools"] = failed_tools
+    metadata["failure_reasons"] = failure_reasons
+    metadata["chunk_reset_count"] = sum(_metadata_int(item, "chunk_reset_count") for item in tool_metadata)
     metadata["inactive_worlds_zeroed"] = all(bool(item.get("inactive_worlds_zeroed", False)) for item in tool_metadata) if tool_metadata else False
     metadata["sync_count"] = sum(int(item.get("sync_count") or 0) for item in tool_metadata)
     metadata["host_readback_count"] = sum(int(item.get("host_readback_count") or 0) for item in tool_metadata)
