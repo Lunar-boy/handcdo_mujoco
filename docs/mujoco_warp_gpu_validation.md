@@ -1,0 +1,105 @@
+# MuJoCo Warp GPU Validation
+
+MuJoCo Warp validation is optional because the default development environment is CPU-first. Importing the project, parsing CLIs, and running ordinary tests must not require CUDA, MuJoCo Warp, Slurm, or an HPC allocation.
+
+## CPU Tests
+
+Run the default CPU-safe suite:
+
+```bash
+pytest -q
+```
+
+To confirm GPU tests are skipped by default:
+
+```bash
+pytest -q -rs
+```
+
+## GPU Pytest Smoke Tests
+
+Run GPU-marked smoke tests only when a real CUDA and MuJoCo Warp runtime is available:
+
+```bash
+RUN_GPU_TESTS=1 pytest -q -m gpu
+```
+
+Run strict GPU integration mode when the environment is expected to support the full real backend path:
+
+```bash
+RUN_GPU_TESTS=1 RUN_STRICT_WARP_INTEGRATION=1 pytest -q -m gpu
+```
+
+Run only the real backend integration test:
+
+```bash
+RUN_GPU_TESTS=1 pytest -q tests/test_mujoco_warp_gpu_integration.py
+```
+
+Default GPU mode imports `mujoco`, `mujoco_warp`, and `warp`, checks for a CUDA device, instantiates `MujocoWarpBackend`, and calls `MujocoWarpBackend.evaluate_grasps_batch(...)`. If the installed runtime truthfully refuses true fixed-grasp batching, the integration test verifies failure metadata and xfails. Strict mode turns that capability refusal into a hard failure.
+
+## Validation Script
+
+Run the local/HPC JSON-reporting validation:
+
+```bash
+python3 scripts/validate_mujoco_warp_gpu.py --results-dir outputs/warp_gpu_validation
+```
+
+Strict mode requires full success:
+
+```bash
+python3 scripts/validate_mujoco_warp_gpu.py \
+  --results-dir outputs/warp_gpu_validation \
+  --strict
+```
+
+Allow skipped validation in CPU-only environments:
+
+```bash
+python3 scripts/validate_mujoco_warp_gpu.py \
+  --results-dir outputs/warp_gpu_validation \
+  --allow-skip
+```
+
+The script exits with `0` on success, `0` for prerequisite skips only when `--allow-skip` is set, `1` for backend validation failures after prerequisites are available, and `2` for missing prerequisites without `--allow-skip`.
+
+## Slurm
+
+Submit the generic GPU validation template:
+
+```bash
+sbatch slurm/validate_mujoco_warp_gpu.sbatch
+```
+
+The template writes Slurm logs under `logs/` and JSON reports under `outputs/warp_gpu_validation/`. It is intentionally generic; add local partition, account, or module-load directives as needed.
+
+## Report Metadata
+
+Important fields in the JSON report and backend metadata include:
+
+```text
+backend
+experimental
+score_semantics
+include_in_multifidelity
+true_batched_scoring
+per_world_state_init
+failure_count
+failure_reason
+sequential_fallback
+num_grasps
+num_chunks
+nworld
+readback_interval
+warmup_requested_steps
+warmup_executed_steps
+capture_graph_requested
+capture_graph_enabled
+capture_graph_reason
+warp_capabilities
+```
+
+## Limitations
+
+The MuJoCo Warp path remains experimental and is not claimed CPU-equivalent. GPU tests require a real CUDA and MuJoCo Warp runtime. Graph capture may remain disabled when unsupported by the dynamic readback path. Default GPU mode may xfail on runtimes that cannot support true fixed-grasp batching; strict mode is the proof that the current environment can run the real end-to-end path successfully.
