@@ -10,6 +10,8 @@ if ! command -v sbatch >/dev/null 2>&1; then
   exit 127
 fi
 
+# Pass site-specific Slurm options through this wrapper, for example:
+# scripts/submit_mujoco_warp_gpu_validation.sh --partition=<gpu-partition> --account=<account>
 mkdir -p logs outputs/warp_gpu_validation
 
 echo "Created runtime directories: logs outputs/warp_gpu_validation"

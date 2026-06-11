@@ -16,37 +16,46 @@ To confirm GPU tests are skipped by default:
 pytest -q -rs
 ```
 
-## GPU Pytest Smoke Tests
+## GPU Validation On HPC/Slurm
 
-Run GPU-marked smoke tests only when a real CUDA and MuJoCo Warp runtime is available:
+Run strict GPU validation through the submission wrapper:
 
 ```bash
-RUN_GPU_TESTS=1 pytest -q -m gpu
+scripts/submit_mujoco_warp_gpu_validation.sh
 ```
 
-Run strict GPU integration mode when the environment is expected to support the full real backend path:
+For sites requiring explicit partition or account options:
 
 ```bash
+scripts/submit_mujoco_warp_gpu_validation.sh --partition=<gpu-partition> --account=<account>
+```
+
+This submits `slurm/validate_mujoco_warp_gpu.sbatch`, which runs `scripts/validate_mujoco_warp_gpu.py --strict ...` on a GPU allocation. Strict success means the real MuJoCo Warp GPU backend path completed end-to-end. If the runtime lacks true fixed-grasp batching support, strict validation should fail instead of xfail.
+
+The job writes:
+
+```text
+logs/warp_gpu_validate_<jobid>.out
+logs/warp_gpu_validate_<jobid>.err
+outputs/warp_gpu_validation/*.json
+```
+
+Do not run GPU pytest directly on login nodes. Direct GPU pytest commands are debug-only after `salloc`, `srun`, or the site equivalent has already provided an interactive GPU allocation:
+
+```bash
+# Debug only inside an existing GPU allocation:
 RUN_GPU_TESTS=1 RUN_STRICT_WARP_INTEGRATION=1 pytest -q -m gpu
 ```
 
-Run only the real backend integration test:
-
-```bash
-RUN_GPU_TESTS=1 pytest -q tests/test_mujoco_warp_gpu_integration.py
-```
-
-Default GPU mode imports `mujoco`, `mujoco_warp`, and `warp`, checks for a CUDA device, instantiates `MujocoWarpBackend`, and calls `MujocoWarpBackend.evaluate_grasps_batch(...)`. If the installed runtime truthfully refuses true fixed-grasp batching, the integration test verifies failure metadata and xfails. Strict mode turns that capability refusal into a hard failure.
-
 ## Validation Script
 
-Run the local/HPC JSON-reporting validation:
+The standard acceptance workflow is the Slurm wrapper above. The validation script still supports direct non-strict mode for local developer debugging or environment probing:
 
 ```bash
 python3 scripts/validate_mujoco_warp_gpu.py --results-dir outputs/warp_gpu_validation
 ```
 
-Strict mode requires full success:
+Strict mode requires full success and is what the Slurm template runs by default:
 
 ```bash
 python3 scripts/validate_mujoco_warp_gpu.py \
@@ -88,7 +97,7 @@ Pass Slurm overrides through the wrapper when needed:
 scripts/submit_mujoco_warp_gpu_validation.sh --partition=gpu --time=00:20:00
 ```
 
-The wrapper creates `logs/` and `outputs/warp_gpu_validation/` before calling `sbatch`. This matters because Slurm may open `#SBATCH --output` and `#SBATCH --error` paths before the sbatch script body has a chance to run. The underlying template remains generic; add local partition, account, or module-load directives as needed.
+The wrapper creates `logs/` and `outputs/warp_gpu_validation/` before calling `sbatch`. This matters because Slurm may open `#SBATCH --output` and `#SBATCH --error` paths before the sbatch script body has a chance to run. The underlying template remains generic and runs strict validation by default; add local partition, account, or module-load directives as needed.
 
 ## Report Metadata
 

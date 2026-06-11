@@ -1,11 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=warp-gpu-validate
+#SBATCH --partition=capella
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
+#SBATCH --cpu-freq=High
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G
+#SBATCH --mem=64000
 #SBATCH --time=00:30:00
+#SBATCH --verbose
 #SBATCH --output=logs/warp_gpu_validate_%j.out
 #SBATCH --error=logs/warp_gpu_validate_%j.err
 
@@ -26,10 +29,10 @@ echo "SLURM_CPUS_PER_TASK=${SLURM_CPUS_PER_TASK:-}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi || true
 
-# Optional: load site modules if your HPC requires them.
-# module purge
-# module load Python/3.11
-# module load CUDA
+
+module purge
+ml load release/25.06 GCCcore/13.3.0 Python/3.12.3 CUDA/12.8.0
+
 
 # Override with: sbatch --export=ALL,VENV_PATH=/path/to/venv slurm/validate_mujoco_warp_gpu.sbatch
 VENV_PATH="${VENV_PATH:-.venv}"
@@ -47,6 +50,7 @@ echo "=== Python ==="
 
 echo "=== MuJoCo Warp GPU validation ==="
 "${PYTHON}" scripts/validate_mujoco_warp_gpu.py \
+  --strict \
   --results-dir outputs/warp_gpu_validation \
   --tool hammer \
   --n-grasps 2 \

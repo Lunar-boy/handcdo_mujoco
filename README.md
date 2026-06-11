@@ -139,13 +139,21 @@ On CPU-only systems, the benchmark writes `availability.json`, `benchmark_result
 
 The benchmark-local `warp_model.xml` may rewrite CPU-MuJoCo settings that are unsupported by MuJoCo Warp. Current compatibility rewrites include `option.integrator="implicitfast"` to `Euler` and non-zero geom/contact-pair margins to `0` for MuJoCo Warp MULTICCD compatibility. These rewrites do not change the default CPU MuJoCo generator or scoring path.
 
-Optional local GPU smoke tests must be explicitly enabled and are only for import/device sanity. Laptop GPU timings, especially on weak GPUs such as MX350, should not be interpreted as H100-class throughput:
+Optional GPU validation is intended to run through a Slurm/HPC GPU allocation. The strict MuJoCo Warp GPU validation entry point is:
 
 ```bash
-RUN_GPU_TESTS=1 python3 -m pytest -q -m gpu
+scripts/submit_mujoco_warp_gpu_validation.sh
 ```
 
-Capella is the recommended PR10 GPU smoke target:
+For sites that require explicit Slurm options, pass them through the wrapper:
+
+```bash
+scripts/submit_mujoco_warp_gpu_validation.sh --partition=<gpu-partition> --account=<account>
+```
+
+The wrapper creates `logs/` and `outputs/warp_gpu_validation/` before submitting `slurm/validate_mujoco_warp_gpu.sbatch`, whose validation command runs in strict mode by default. Do not run GPU pytest directly on login nodes. Direct `RUN_GPU_TESTS=1` pytest commands are debug-only inside an existing GPU allocation.
+
+Capella is the recommended PR10 benchmark smoke target for the older benchmark-only workflow:
 
 ```bash
 sbatch slurm/mujoco_warp_capella_smoke.sbatch

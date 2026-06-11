@@ -107,6 +107,10 @@ def test_submit_wrapper_precreates_directories_and_invokes_slurm() -> None:
     assert "slurm/validate_mujoco_warp_gpu.sbatch" in text
     subprocess.run(["bash", "-n", str(path)], check=True)
 
+    slurm_text = Path("slurm/validate_mujoco_warp_gpu.sbatch").read_text(encoding="utf-8")
+    assert "scripts/validate_mujoco_warp_gpu.py \\" in slurm_text
+    assert "--strict \\" in slurm_text
+
 
 def test_default_validation_capability_failure_returns_xfailed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from handcdo.backends.mujoco_warp import MujocoWarpCapabilityError

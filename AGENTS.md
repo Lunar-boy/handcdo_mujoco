@@ -61,11 +61,13 @@ GPU-related code must be written so that:
 - missing optional GPU dependencies produce clear skip/error messages;
 - no GPU code path is executed unless explicitly requested.
 
-MuJoCo Warp tests must be optional and guarded by explicit markers or environment variables:
+MuJoCo Warp tests must be optional and guarded by explicit markers or environment variables. GPU validation should be submitted through Slurm/HPC by default:
 
 ```bash
-RUN_GPU_TESTS=1 pytest -q -m gpu
+scripts/submit_mujoco_warp_gpu_validation.sh
 ```
+
+Do not run `RUN_GPU_TESTS=1 pytest -q -m gpu` directly on login nodes. Direct GPU pytest is only for debugging inside an existing GPU allocation.
 
 Do not claim that MuJoCo Warp functionality, H100 behavior, or GPU throughput is validated unless a
 Slurm GPU job or equivalent allocated GPU-node test has actually been run.
@@ -215,7 +217,7 @@ sbatch \
   slurm/mujoco_warp_capella_smoke.sbatch
 ```
 
-Inside the allocated job, run:
+Inside an allocated job, GPU pytest may be used for debugging, but the strict acceptance path is the Slurm validation wrapper/template:
 
 ```bash
 RUN_GPU_TESTS=1 pytest -q -m gpu
