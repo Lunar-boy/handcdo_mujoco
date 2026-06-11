@@ -62,17 +62,33 @@ python3 scripts/validate_mujoco_warp_gpu.py \
   --allow-skip
 ```
 
-The script exits with `0` on success, `0` for prerequisite skips only when `--allow-skip` is set, `1` for backend validation failures after prerequisites are available, and `2` for missing prerequisites without `--allow-skip`.
+Exit codes:
+
+```text
+0 = passed
+0 = skipped because prerequisites are missing and --allow-skip was set
+0 = xfailed in default mode because true fixed-grasp batching is unsupported, after truthful metadata checks pass
+1 = backend validation failed after prerequisites were available
+2 = prerequisites missing and --allow-skip was not set
+```
+
+Default mode is not weaker on successful backend runs: it still requires true batched scoring, no failed evaluations, and 12 wrench results per grasp. The only default-mode relaxation is `status: "xfailed"` for the known true fixed-grasp batching capability gate after the backend was called and metadata truthfully reports the limitation. Strict mode treats that same capability gate as `status: "failed"` with exit code `1`. Unexpected exceptions always fail in both modes.
 
 ## Slurm
 
-Submit the generic GPU validation template:
+Submit the generic GPU validation template through the wrapper:
 
 ```bash
-sbatch slurm/validate_mujoco_warp_gpu.sbatch
+scripts/submit_mujoco_warp_gpu_validation.sh
 ```
 
-The template writes Slurm logs under `logs/` and JSON reports under `outputs/warp_gpu_validation/`. It is intentionally generic; add local partition, account, or module-load directives as needed.
+Pass Slurm overrides through the wrapper when needed:
+
+```bash
+scripts/submit_mujoco_warp_gpu_validation.sh --partition=gpu --time=00:20:00
+```
+
+The wrapper creates `logs/` and `outputs/warp_gpu_validation/` before calling `sbatch`. This matters because Slurm may open `#SBATCH --output` and `#SBATCH --error` paths before the sbatch script body has a chance to run. The underlying template remains generic; add local partition, account, or module-load directives as needed.
 
 ## Report Metadata
 

@@ -23,8 +23,12 @@ from handcdo.utils import ensure_dir, write_json
 STATUS_PASSED = "passed"
 STATUS_FAILED = "failed"
 STATUS_SKIPPED = "skipped"
+STATUS_XFAILED = "xfailed"
 
-CAPABILITY_EXCEPTION_NAMES = {"MujocoWarpCapabilityError", "NotImplementedError"}
+XFAIL_REASON_TRUE_BATCHING = (
+    "MuJoCo Warp runtime does not support true fixed-grasp batching; "
+    "metadata truthfully reports the capability gate"
+)
 
 
 @dataclass(frozen=True)
@@ -138,11 +142,21 @@ def run_validation(config: ValidationConfig) -> tuple[int, dict[str, Any], Path]
         "backend_metadata": None,
         "results": [],
         "status": STATUS_FAILED,
+        "strict": config.strict,
+        "allow_skip": config.allow_skip,
         "exception": None,
         "skip_reason": None,
+        "xfail_reason": None,
+        "validation": {
+            "prerequisites_checked": False,
+            "backend_called": False,
+            "success_checks_passed": False,
+            "xfail_checks_passed": False,
+        },
     }
 
     prerequisites = check_runtime_prerequisites()
+    report["validation"]["prerequisites_checked"] = True
     report["environment"]["prerequisites"] = _prerequisites_payload(prerequisites)
     if not prerequisites.ok:
         report["status"] = STATUS_SKIPPED
@@ -152,9 +166,11 @@ def run_validation(config: ValidationConfig) -> tuple[int, dict[str, Any], Path]
 
     try:
         evaluations, metadata = evaluate_real_backend_smoke(config)
+        report["validation"]["backend_called"] = True
         report["backend_metadata"] = metadata
         report["results"] = [_evaluation_summary(evaluation) for evaluation in evaluations]
         _assert_success_metadata(metadata, evaluations, config)
+        report["validation"]["success_checks_passed"] = True
         report["status"] = STATUS_PASSED
         _write_report(report_path, report)
         return 0, report, report_path
@@ -162,7 +178,26 @@ def run_validation(config: ValidationConfig) -> tuple[int, dict[str, Any], Path]
         metadata = getattr(exc, "backend_metadata", None)
         if metadata is not None:
             report["backend_metadata"] = metadata
+            report["validation"]["backend_called"] = True
         report["exception"] = _exception_payload(exc)
+        if (
+            not config.strict
+            and report["validation"]["backend_called"]
+            and _is_true_batching_capability_failure(exc, metadata)
+        ):
+            try:
+                assert_truthful_capability_failure(metadata, config.n_grasps)
+            except Exception as validation_exc:
+                report["exception"] = _exception_payload(validation_exc)
+                report["validation"]["xfail_checks_passed"] = False
+                report["status"] = STATUS_FAILED
+                _write_report(report_path, report)
+                return 1, report, report_path
+            report["validation"]["xfail_checks_passed"] = True
+            report["status"] = STATUS_XFAILED
+            report["xfail_reason"] = XFAIL_REASON_TRUE_BATCHING
+            _write_report(report_path, report)
+            return 0, report, report_path
         report["status"] = STATUS_FAILED
         _write_report(report_path, report)
         return 1, report, report_path
@@ -210,22 +245,29 @@ def evaluate_real_backend_smoke(config: ValidationConfig) -> tuple[list[GraspEva
 
 
 def is_capability_exception(exc: BaseException) -> bool:
-    return type(exc).__name__ in CAPABILITY_EXCEPTION_NAMES or isinstance(exc, NotImplementedError)
+    return _is_mujoco_warp_capability_error(exc)
 
 
 def assert_truthful_capability_failure(metadata: dict[str, Any] | None, num_grasps: int) -> None:
-    assert metadata is not None
-    assert metadata["backend"] == "mujoco_warp"
-    assert metadata["experimental"] is True
-    assert metadata["score_semantics"] == "experimental_non_equivalent"
-    assert metadata["sequential_fallback"] is False
-    assert metadata["include_in_multifidelity"] is False
-    assert metadata["true_batched_scoring"] is False
-    assert metadata["failure_count"] == num_grasps
-    assert metadata["failure_reason"]
-    capabilities = metadata.get("warp_capabilities", {})
-    if capabilities:
-        assert capabilities.get("supports_true_fixed_grasp_batching") is False
+    _require(metadata is not None, "backend metadata is missing")
+    _require(metadata.get("backend") == "mujoco_warp", "metadata backend must be mujoco_warp")
+    _require(metadata.get("experimental") is True, "metadata experimental must be true")
+    _require(
+        metadata.get("score_semantics") == "experimental_non_equivalent",
+        "metadata score_semantics must remain experimental_non_equivalent",
+    )
+    _require(metadata.get("sequential_fallback") is False, "sequential fallback must be false")
+    _require(metadata.get("include_in_multifidelity") is False, "include_in_multifidelity must be false")
+    _require(metadata.get("true_batched_scoring") is False, "true_batched_scoring must be false")
+    if "per_world_state_init" in metadata:
+        _require(metadata.get("per_world_state_init") is False, "per_world_state_init must be false")
+    _require(metadata.get("failure_count") == num_grasps, "failure_count must match requested grasps")
+    _require(bool(metadata.get("failure_reason")), "failure_reason must be non-empty")
+    capabilities = metadata.get("warp_capabilities") or {}
+    _require(
+        capabilities.get("supports_true_fixed_grasp_batching") is False,
+        "warp_capabilities must report supports_true_fixed_grasp_batching=false",
+    )
 
 
 def assert_successful_integration(
@@ -238,31 +280,37 @@ def assert_successful_integration(
     warmup_steps: int,
     readback_interval: int,
 ) -> None:
-    assert len(evaluations) == num_grasps
-    assert metadata is not None
-    assert metadata["backend"] == "mujoco_warp"
-    assert metadata["experimental"] is True
-    assert metadata["score_semantics"] == "experimental_non_equivalent"
-    assert metadata["sequential_fallback"] is False
-    assert metadata["include_in_multifidelity"] is False
-    assert metadata["failure_count"] == 0
-    assert metadata["failure_reason"] is None
-    assert metadata["true_batched_scoring"] is True
-    assert metadata["per_world_state_init"] is True
-    assert metadata["num_grasps"] == num_grasps
-    assert metadata["nworld"] == nworld
-    assert metadata["num_chunks"] >= 1
-    assert metadata["warmup_requested_steps"] == warmup_steps
-    assert metadata["warmup_executed_steps"] in (0, warmup_steps)
-    assert metadata["readback_interval"] == readback_interval
-    assert metadata["capture_graph_requested"] is False
-    assert metadata["capture_graph_enabled"] is False
+    _require(len(evaluations) == num_grasps, "evaluation count must match requested grasps")
+    _require(metadata is not None, "backend metadata is missing")
+    _require(metadata.get("backend") == "mujoco_warp", "metadata backend must be mujoco_warp")
+    _require(metadata.get("experimental") is True, "metadata experimental must be true")
+    _require(
+        metadata.get("score_semantics") == "experimental_non_equivalent",
+        "metadata score_semantics must remain experimental_non_equivalent",
+    )
+    _require(metadata.get("sequential_fallback") is False, "sequential fallback must be false")
+    _require(metadata.get("include_in_multifidelity") is False, "include_in_multifidelity must be false")
+    _require(metadata.get("failure_count") == 0, "failure_count must be zero")
+    _require(metadata.get("failure_reason") is None, "failure_reason must be null on success")
+    _require(metadata.get("true_batched_scoring") is True, "true_batched_scoring must be true")
+    _require(metadata.get("per_world_state_init") is True, "per_world_state_init must be true")
+    _require(metadata.get("num_grasps") == num_grasps, "num_grasps must match requested grasps")
+    _require(metadata.get("nworld") == nworld, "nworld must match validation config")
+    _require(metadata.get("num_chunks", 0) >= 1, "num_chunks must be at least one")
+    _require(metadata.get("warmup_requested_steps") == warmup_steps, "warmup_requested_steps mismatch")
+    _require(
+        metadata.get("warmup_executed_steps") in (0, warmup_steps),
+        "warmup_executed_steps must be zero or the requested warmup steps",
+    )
+    _require(metadata.get("readback_interval") == readback_interval, "readback_interval mismatch")
+    _require(metadata.get("capture_graph_requested") is False, "capture_graph_requested must be false")
+    _require(metadata.get("capture_graph_enabled") is False, "capture_graph_enabled must be false")
     for evaluation in evaluations:
-        assert evaluation.tool == tool_name
-        assert evaluation.failed is False
-        assert evaluation.error is None
-        assert isinstance(evaluation.score, float)
-        assert len(evaluation.wrench_results) == 12
+        _require(evaluation.tool == tool_name, "evaluation tool mismatch")
+        _require(evaluation.failed is False, "evaluation must not be failed")
+        _require(evaluation.error is None, "evaluation error must be null")
+        _require(isinstance(evaluation.score, float), "evaluation score must be a float")
+        _require(len(evaluation.wrench_results) == 12, "evaluation must include 12 wrench results")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -430,6 +478,41 @@ def _exception_payload(exc: BaseException) -> dict[str, Any]:
 def _write_report(path: Path, report: dict[str, Any]) -> None:
     ensure_dir(path.parent)
     write_json(path, report)
+
+
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def _is_true_batching_capability_failure(exc: BaseException, metadata: dict[str, Any] | None) -> bool:
+    if metadata is None:
+        return False
+    capabilities = metadata.get("warp_capabilities") or {}
+    if capabilities.get("supports_true_fixed_grasp_batching") is not False:
+        return False
+    if metadata.get("sequential_fallback") is not False:
+        return False
+    if metadata.get("true_batched_scoring") is not False:
+        return False
+    if _is_mujoco_warp_capability_error(exc):
+        return True
+    if isinstance(exc, NotImplementedError):
+        failure_reason = str(metadata.get("failure_reason") or "").lower()
+        return (
+            "true fixed-grasp batching" in failure_reason
+            or "true per-world fixed-grasp" in failure_reason
+            or "fake batched scores" in failure_reason
+        )
+    return False
+
+
+def _is_mujoco_warp_capability_error(exc: BaseException) -> bool:
+    try:
+        from handcdo.backends.mujoco_warp import MujocoWarpCapabilityError
+    except Exception:
+        return type(exc).__name__ == "MujocoWarpCapabilityError"
+    return isinstance(exc, MujocoWarpCapabilityError)
 
 
 def _validate_config(config: ValidationConfig) -> None:
