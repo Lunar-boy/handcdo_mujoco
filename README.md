@@ -105,7 +105,7 @@ python3 scripts/compare_benchmarks.py \
 
 ## MuJoCo Warp benchmark
 
- MuJoCo Warp is an benchmark-only dependency for GPU compatibility and throughput diagnostics; it is not a production backend and does not replace CPU MuJoCo scoring. The benchmark does not compute grasp scores or prove score equivalence.
+ The benchmark does not compute grasp scores or prove score equivalence.
 
 Install the optional package only in environments where you want to run the GPU diagnostics:
 
