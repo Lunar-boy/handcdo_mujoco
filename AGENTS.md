@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is a CPU-first MuJoCo reproduction of the optimization infrastructure from
+This repository is a MuJoCo reproduction of the optimization infrastructure from
 “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
 
 The project is developed primarily from a local laptop using VS Code + Codex. The local machine may
@@ -12,7 +12,7 @@ requested, preferably through Slurm on the known Capella or Alpha GPU nodes.
 
 ## Core project goal
 
-Preserve a robust CPU-first research codebase for:
+Preserve a robust research codebase for:
 
 - parametric hand design generation;
 - MJCF generation from hand designs;
@@ -24,8 +24,7 @@ Preserve a robust CPU-first research codebase for:
 - result collection and analysis;
 - surrogate-assisted candidate proposal.
 
-GPU-related work is allowed only when the active PR prompt asks for it. GPU work must remain optional
-unless the user explicitly requests an experimental GPU PR.
+GPU-related work is allowed only when the active PR prompt asks for it.
 
 ---
 
@@ -61,7 +60,7 @@ GPU-related code must be written so that:
 - missing optional GPU dependencies produce clear skip/error messages;
 - no GPU code path is executed unless explicitly requested.
 
-MuJoCo Warp tests must be optional and guarded by explicit markers or environment variables. GPU validation should be submitted through Slurm/HPC by default:
+GPU validation should be submitted through Slurm/HPC by default:
 
 ```bash
 scripts/submit_mujoco_warp_gpu_validation.sh
@@ -266,14 +265,6 @@ Do not require Alpha validation for PR10 acceptance.
 
 ## MuJoCo Warp policy
 
-For PR10:
-
-- implement benchmark-only compatibility and throughput diagnostics;
-- do not add a production backend;
-- do not modify backend registry behavior;
-- do not change default CLI behavior;
-- default tests must remain CPU-only;
-- GPU validation is optional and should use Capella first.
 
 For PR11 or later:
 
