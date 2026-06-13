@@ -283,6 +283,44 @@ Do not break existing metadata keys. Add new keys only.
 
 If adding full `field_reports` is too invasive, at minimum improve the existing reason strings so the JSON report shows why each write method failed.
 
+
+## Additional clarifications before implementation
+
+1. Prefer existing test locations when possible.
+   - The repository already has `tests/test_mujoco_warp_backend_optional.py` and `tests/test_mujoco_warp_gpu_smoke.py`.
+   - Add focused new test files only if that keeps the tests clearer.
+   - Do not require the exact file names `tests/test_warp_utils.py` or `tests/test_mujoco_warp_backend.py` if they do not already exist.
+
+2. Whole-batch verification must prove per-world-different writes.
+   - When `nworld >= 2`, mutate world 0 and world 1 to distinct values.
+   - Do not mark a field as write-verified if only world 0 is checked.
+   - The readback must verify that both worlds received their distinct values.
+
+3. CPU fake-field tests are necessary but not sufficient.
+   - If strict Slurm validation is not run during implementation, improve failure diagnostics enough that the next H100 run reports:
+     - field type;
+     - field shape;
+     - dtype if available;
+     - device if available;
+     - whether `field[...] = value` was attempted and its exception;
+     - whether native methods were attempted and their exceptions;
+     - whether `wp.from_numpy(...)` and `wp.copy(...)` were attempted and their exceptions.
+   - Add these details under a non-breaking metadata key such as `warp_capabilities.field_reports`.
+
+4. Do not silently turn whole-batch write into a fake success.
+   - A write method is successful only if a subsequent host readback verifies the expected values.
+   - A restore method is successful only if a subsequent host readback verifies the original values were restored.
+
+5. Partial chunk handling must avoid stale-world contamination.
+   - For value batches smaller than `nworld`, inactive worlds must be reset to deterministic inactive values or preserved only if the existing caller has already prepared deterministic inactive values.
+   - Do not preserve stale state from previous active chunks.
+   - Add a regression test for a previous nonzero inactive world being cleared or overwritten deterministically.
+
+6. If MuJoCo Warp 3.9.0.1 does not support whole-batch writes either, do not force strict validation to pass.
+   - In that case, keep the safety gate failing.
+   - Improve diagnostics so the next PR can target the real MuJoCo Warp state API.
+
+
 ## Tests
 
 Add or update CPU-safe unit tests using fake field objects. These tests must not require CUDA, MuJoCo Warp, or a real GPU.

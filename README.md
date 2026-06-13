@@ -1,10 +1,8 @@
 # handcdo_mujoco
 
-`handcdo_mujoco` is a MuJoCo reproduction of the optimization infrastructure from “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
+`handcdo_mujoco` is a MuJoCo/MuJoCo Warp reproduction of the optimization infrastructure from “Function-based Parametric Co-Design Optimization of Dexterous Hands” (arXiv:2604.27557).
 
-This is not an exact reproduction of the original hardware, unpublished hand generator, Isaac Sim pipeline, OptiTrack evaluation, or physical fabrication workflow. Those parts are intentionally out of scope. The goal here is a robust research codebase for parametric hand design sampling, primitive MJCF generation, MuJoCo grasp/wrench evaluation, TPE optimization, Slurm array execution, result collection, and Random Forest plus SHAP parameter analysis.
-
-The evaluation score is an approximation of the paper’s simulation-based wrench stability score. Geometry is deliberately simplified and uses MuJoCo primitives so the workflow can run on CPU HPC nodes. The code is structured so more accurate meshes, real deformation kernels, Mujoco Wrap or GPU simulation can be added later.
+The goal here is a robust research codebase for parametric hand design sampling, primitive MJCF generation, MuJoCo grasp/wrench evaluation, TPE optimization, Slurm array execution, result collection, and Random Forest plus SHAP parameter analysis.
 
 Tool geometry defaults to the original primitive hammer, spoon, and knife models. Optional `tool.mode: hybrid` configuration can add separate visual and collision meshes from `assets/tools/<tool_name>/`; when assets are missing it logs a warning and falls back to primitives without changing optimization semantics. Collision meshes should be convex or low-complexity for stable MuJoCo contact. This infrastructure does not perform convex decomposition. See [docs/tool_geometry.md](docs/tool_geometry.md).
 
@@ -17,7 +15,7 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -e ".[test]"
 ```
 
-On headless clusters, MuJoCo’s Python package runs CPU simulation without Isaac Sim, ROS, or a GPU.
+On headless clusters, MuJoCo’s Python package runs CPU simulation.
 
 ## Local Demo
 
@@ -105,9 +103,9 @@ python3 scripts/compare_benchmarks.py \
   --output-dir outputs/smoke_baseline_compare
 ```
 
-## Optional MuJoCo Warp benchmark
+## MuJoCo Warp benchmark
 
-The repository remains CPU-only by default. MuJoCo Warp is an optional benchmark-only dependency for GPU compatibility and throughput diagnostics; it is not a production backend and does not replace CPU MuJoCo scoring. The benchmark does not compute grasp scores or prove score equivalence.
+ The benchmark does not compute grasp scores or prove score equivalence.
 
 Install the optional package only in environments where you want to run the GPU diagnostics:
 
@@ -167,11 +165,10 @@ sbatch slurm/mujoco_warp_alpha_sweep.sbatch
 
 Do not treat these diagnostics as physical validation, H100 correctness, or speedup evidence unless the corresponding GPU-node benchmark logs were actually produced and reported.
 
-## Experimental MuJoCo Warp batch evaluation
+## MuJoCo Warp batch evaluation
 
-The dedicated MuJoCo Warp batch evaluator is optional and experimental. It is intended for NVIDIA GPU throughput experiments, especially H100-class systems, and is most useful for fixed random-grasp batch evaluation. It is not the default backend: CPU MuJoCo remains the reference implementation for scoring and scientific reporting.
+The dedicated MuJoCo Warp batch evaluator is optional and experimental. It is intended for NVIDIA GPU throughput experiments, especially H100-class systems, and is most useful for fixed random-grasp batch evaluation. 
 
-Warp scores from this CLI are marked as `experimental_non_equivalent` and should not be used as final scientific conclusions until CPU-vs-Warp comparisons are stable. Default installation and tests remain CPU-only.
 
 Install the normal test dependencies first, then add the optional Warp extra only in environments where you want to run Warp experiments:
 
@@ -194,7 +191,7 @@ python3 scripts/evaluate_design_batch_warp.py \
   --seed 0
 ```
 
-The CLI writes one experimental JSON file per design, using filenames such as `<design_id>.mujoco_warp.experimental.json`, and each payload includes `"include_in_multifidelity": false`. It refuses to overwrite existing result files unless `--overwrite` is passed. It also refuses to write into a directory that already contains CPU-style result JSON files; pass `--allow-mixed-backend-dir` only when intentionally colocating experimental Warp and CPU outputs. Do not claim speedup from this path unless measured on the target GPU node and reported with the corresponding logs.
+The CLI writes one experimental JSON file per design, using filenames such as `<design_id>.mujoco_warp.experimental.json`, and each payload includes `"include_in_multifidelity": false`. It refuses to overwrite existing result files unless `--overwrite` is passed. It also refuses to write into a directory that already contains CPU-style result JSON files; pass `--allow-mixed-backend-dir` only when intentionally colocating experimental Warp and CPU outputs. 
 
 ## Comparing CPU and MuJoCo Warp results
 
@@ -502,9 +499,7 @@ handcdo_mujoco/
 ## Scope Notes
 
 - No Isaac Sim integration.
-- No ROS dependency.
 - No GPU-only libraries are required by the default installation or default test suite.
-- Optional MuJoCo Warp support is benchmark-only and not a production backend.
 - No real robot control, fabrication, OptiTrack, or physical validation.
 - Primitive hammer, spoon, and knife models are placeholders for simulation infrastructure tests.
 - Hybrid tool geometry supports optional visual/collision meshes while preserving primitive fallback and the default primitive path.

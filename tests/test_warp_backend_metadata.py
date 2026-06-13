@@ -7,6 +7,51 @@ import numpy as np
 from handcdo.warp_utils import WarpBatchCapabilities, inspect_warp_batch_capabilities, warp_batch_metadata
 
 
+class WholeBatchOnlyField:
+    def __init__(self, shape, fill=0.0):
+        self.data = np.full(shape, fill, dtype=float)
+        self.assignments = []
+
+    @property
+    def shape(self):
+        return self.data.shape
+
+    @property
+    def dtype(self):
+        return self.data.dtype
+
+    @property
+    def device(self):
+        return "cpu-test"
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy if copy is not None else True)
+
+    def __setitem__(self, key, value):
+        if key is not Ellipsis:
+            raise TypeError("per-world and partial writes rejected")
+        array = np.asarray(value, dtype=float)
+        if array.shape != self.data.shape:
+            raise ValueError(f"expected full shape {self.data.shape}, got {array.shape}")
+        self.assignments.append(array.copy())
+        self.data[...] = array
+
+
+class RejectAllWriteField:
+    def __init__(self, shape):
+        self.data = np.zeros(shape, dtype=float)
+
+    @property
+    def shape(self):
+        return self.data.shape
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy if copy is not None else True)
+
+    def __setitem__(self, key, value):
+        raise TypeError("writes rejected")
+
+
 def test_inspect_warp_batch_capabilities_reports_mandatory_conservative_probe_fields():
     fake_mjw = SimpleNamespace(
         put_model=object(),
@@ -176,6 +221,83 @@ def test_capability_probe_detects_full_batched_mock_data_and_verified_writes():
     assert capabilities.xpos_is_batched is True
     assert capabilities.xmat_is_batched is True
     assert capabilities.supports_true_fixed_grasp_batching is True
+
+
+def test_capability_probe_uses_whole_batch_write_fallback_and_reports_diagnostics():
+    fake_mjw = SimpleNamespace(put_model=object(), put_data=object(), step=object(), forward=lambda *args: None)
+    warp_data = SimpleNamespace(
+        qpos=WholeBatchOnlyField((2, 3)),
+        qvel=WholeBatchOnlyField((2, 2)),
+        ctrl=WholeBatchOnlyField((2, 1)),
+        xfrc_applied=WholeBatchOnlyField((2, 4, 6)),
+        xpos=np.zeros((2, 4, 3)),
+        xmat=np.zeros((2, 4, 9)),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.supports_true_fixed_grasp_batching is True
+    assert capabilities.can_set_per_world_qpos is True
+    assert capabilities.can_set_per_world_qvel is True
+    assert capabilities.can_set_per_world_ctrl is True
+    assert capabilities.can_set_per_world_xfrc is True
+    assert capabilities.qpos_write_method == "whole_batch_setitem"
+    qpos_report = capabilities.field_reports["qpos"]
+    assert qpos_report["write_tested"] is True
+    assert qpos_report["write_roundtrip_verified"] is True
+    assert qpos_report["type"] == "WholeBatchOnlyField"
+    assert qpos_report["dtype"] == "float64"
+    assert qpos_report["device"] == "cpu-test"
+    assert any(attempt["success"] is False for attempt in qpos_report["write_attempts"])
+    assert any(attempt["method"] == "whole_batch_setitem" for attempt in qpos_report["write_attempts"])
+
+
+def test_whole_batch_probe_verifies_distinct_worlds_and_restores_original():
+    fake_mjw = SimpleNamespace(put_model=object(), put_data=object(), step=object(), forward=lambda *args: None)
+    qpos = WholeBatchOnlyField((2, 3))
+    qpos.data[0] = [1.0, 2.0, 3.0]
+    qpos.data[1] = [4.0, 5.0, 6.0]
+    original = qpos.data.copy()
+    warp_data = SimpleNamespace(
+        qpos=qpos,
+        qvel=WholeBatchOnlyField((2, 2)),
+        ctrl=WholeBatchOnlyField((2, 1)),
+        xfrc_applied=WholeBatchOnlyField((2, 4, 6)),
+        xpos=np.zeros((2, 4, 3)),
+        xmat=np.zeros((2, 4, 9)),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.supports_true_fixed_grasp_batching is True
+    assert len(qpos.assignments) >= 2
+    mutated = qpos.assignments[0]
+    assert mutated[0, 0] != original[0, 0]
+    assert mutated[1, 0] != original[1, 0]
+    assert mutated[0, 0] != mutated[1, 0]
+    np.testing.assert_allclose(qpos.data, original)
+
+
+def test_capability_probe_reports_unsupported_whole_batch_write_truthfully():
+    fake_mjw = SimpleNamespace(put_model=object(), put_data=object(), step=object(), forward=lambda *args: None)
+    warp_data = SimpleNamespace(
+        qpos=RejectAllWriteField((2, 3)),
+        qvel=RejectAllWriteField((2, 2)),
+        ctrl=RejectAllWriteField((2, 1)),
+        xfrc_applied=RejectAllWriteField((2, 4, 6)),
+        xpos=np.zeros((2, 4, 3)),
+        xmat=np.zeros((2, 4, 9)),
+    )
+
+    capabilities = inspect_warp_batch_capabilities(fake_mjw, warp_data=warp_data, nworld=2)
+
+    assert capabilities.supports_true_fixed_grasp_batching is False
+    assert capabilities.can_set_per_world_qpos is False
+    assert "lacks verified batched write support" in capabilities.true_fixed_grasp_batching_reason
+    qpos_report = capabilities.field_reports["qpos"]
+    assert qpos_report["write_tested"] is False
+    assert "whole-batch assignment failed" in qpos_report["reason"]
+    assert qpos_report["write_attempts"]
 
 
 def test_capability_probe_can_use_field_native_copy_method():

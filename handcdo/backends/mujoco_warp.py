@@ -783,25 +783,68 @@ def _write_required_field(mjw: Any, warp_data: Any, field_name: str, value: np.n
     field = getattr(warp_data, field_name, None)
     if field is None:
         raise MujocoWarpCapabilityError(f"MuJoCo Warp data is missing required field {field_name!r}")
-    try:
-        field[: value.shape[0], ...] = value
-        return
-    except Exception:
-        pass
+    field_shape = warp_utils._shape_of(field)
+    if field_shape is None or len(field_shape) < 1:
+        raise MujocoWarpCapabilityError(f"MuJoCo Warp field {field_name!r} does not expose a batched shape")
+    field_nworld = int(field_shape[0])
+    batch = int(value.shape[0])
+    if batch > field_nworld:
+        raise MujocoWarpCapabilityError(
+            f"MuJoCo Warp field {field_name!r} has leading dimension {field_nworld}, "
+            f"cannot write batch of {batch}"
+        )
+    write_value = value
+    if batch < field_nworld:
+        host_snapshot = warp_utils._field_host_array(field)
+        if host_snapshot is None:
+            raise MujocoWarpCapabilityError(
+                f"Could not prepare partial whole-batch write for MuJoCo Warp field {field_name!r}: "
+                "host readback is unavailable"
+            )
+        if tuple(host_snapshot.shape[1:]) != tuple(value.shape[1:]):
+            raise MujocoWarpCapabilityError(
+                f"MuJoCo Warp field {field_name!r} shape {host_snapshot.shape} is incompatible with "
+                f"write value shape {value.shape}"
+            )
+        write_value = np.zeros_like(host_snapshot)
+        write_value[:batch] = value
+
+    if batch == field_nworld:
+        try:
+            field[:batch, ...] = value
+            return
+        except Exception:
+            pass
+
+    if batch == field_nworld or write_value.shape[0] == field_nworld:
+        wrote, method, reason = warp_utils.try_write_batched_field(
+            field,
+            write_value,
+            field_name=field_name,
+            mjw=mjw,
+        )
+        if wrote:
+            return
+        whole_batch_error = f"{method}: {reason}"
+    else:
+        whole_batch_error = "whole-batch write was not attempted"
+
     errors: list[str] = []
-    for world_index in range(int(value.shape[0])):
+    per_world_value = write_value if write_value.shape[0] == field_nworld else value
+    for world_index in range(int(per_world_value.shape[0])):
         wrote, method, reason = warp_utils._try_write_field_per_world(
             field,
             field_name=field_name,
             world_index=world_index,
-            value=value[world_index],
+            value=per_world_value[world_index],
             mjw=mjw,
         )
         if not wrote:
             errors.append(f"world {world_index}: {method}: {reason}")
     if errors:
         raise MujocoWarpCapabilityError(
-            f"Could not write per-world MuJoCo Warp field {field_name!r}: {'; '.join(errors)}"
+            f"Could not write MuJoCo Warp field {field_name!r}: whole-batch failed with "
+            f"{whole_batch_error}; per-world failed with {'; '.join(errors)}"
         )
 
 
