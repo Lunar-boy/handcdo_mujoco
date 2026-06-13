@@ -793,12 +793,6 @@ def _write_required_field(mjw: Any, warp_data: Any, field_name: str, value: np.n
             f"MuJoCo Warp field {field_name!r} has leading dimension {field_nworld}, "
             f"cannot write batch of {batch}"
         )
-    try:
-        field[:batch, ...] = value
-        return
-    except Exception:
-        pass
-
     write_value = value
     if batch < field_nworld:
         host_snapshot = warp_utils._field_host_array(field)
@@ -814,6 +808,13 @@ def _write_required_field(mjw: Any, warp_data: Any, field_name: str, value: np.n
             )
         write_value = np.zeros_like(host_snapshot)
         write_value[:batch] = value
+
+    if batch == field_nworld:
+        try:
+            field[:batch, ...] = value
+            return
+        except Exception:
+            pass
 
     if batch == field_nworld or write_value.shape[0] == field_nworld:
         wrote, method, reason = warp_utils.try_write_batched_field(

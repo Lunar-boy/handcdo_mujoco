@@ -126,6 +126,21 @@ class RejectAllWriteField:
         raise TypeError("writes rejected")
 
 
+class PartialSliceFriendlyField:
+    def __init__(self, shape, fill=0.0):
+        self.data = np.full(shape, fill, dtype=float)
+
+    @property
+    def shape(self):
+        return self.data.shape
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy if copy is not None else True)
+
+    def __setitem__(self, key, value):
+        self.data[key] = value
+
+
 def test_importing_backends_does_not_import_mujoco_warp_package():
     for module_name in (
         "handcdo.backends",
@@ -562,6 +577,19 @@ def test_write_required_field_partial_chunk_zeroes_inactive_worlds_with_whole_ba
     from handcdo.backends import mujoco_warp
 
     field = WholeBatchOnlyField((3, 2), fill=99.0)
+    warp_data = SimpleNamespace(ctrl=field)
+    value = np.array([[0.25, 0.75]])
+
+    mujoco_warp._write_required_field(SimpleNamespace(), warp_data, "ctrl", value)
+
+    np.testing.assert_allclose(field.data[0], value[0])
+    np.testing.assert_allclose(field.data[1:], np.zeros((2, 2)))
+
+
+def test_write_required_field_partial_chunk_does_not_return_after_partial_slice_assignment():
+    from handcdo.backends import mujoco_warp
+
+    field = PartialSliceFriendlyField((3, 2), fill=99.0)
     warp_data = SimpleNamespace(ctrl=field)
     value = np.array([[0.25, 0.75]])
 
