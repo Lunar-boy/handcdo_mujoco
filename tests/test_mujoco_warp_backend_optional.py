@@ -91,6 +91,41 @@ def _capabilities(supports: bool):
     )
 
 
+class WholeBatchOnlyField:
+    def __init__(self, shape, fill=0.0):
+        self.data = np.full(shape, fill, dtype=float)
+
+    @property
+    def shape(self):
+        return self.data.shape
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy if copy is not None else True)
+
+    def __setitem__(self, key, value):
+        if key is not Ellipsis:
+            raise TypeError("partial writes rejected")
+        array = np.asarray(value, dtype=float)
+        if array.shape != self.data.shape:
+            raise ValueError(f"expected {self.data.shape}, got {array.shape}")
+        self.data[...] = array
+
+
+class RejectAllWriteField:
+    def __init__(self, shape):
+        self.data = np.zeros(shape, dtype=float)
+
+    @property
+    def shape(self):
+        return self.data.shape
+
+    def __array__(self, dtype=None, copy=None):
+        return np.array(self.data, dtype=dtype, copy=copy if copy is not None else True)
+
+    def __setitem__(self, key, value):
+        raise TypeError("writes rejected")
+
+
 def test_importing_backends_does_not_import_mujoco_warp_package():
     for module_name in (
         "handcdo.backends",
@@ -509,6 +544,41 @@ def test_chunk_reset_clears_inactive_worlds_for_partial_chunk(monkeypatch):
     assert stats.reset_count == 1
     assert stats.inactive_worlds_zeroed is True
     np.testing.assert_allclose(bundle.warp_data.qpos[1], np.zeros(7))
+
+
+def test_write_required_field_uses_whole_batch_fallback_for_full_batch():
+    from handcdo.backends import mujoco_warp
+
+    field = WholeBatchOnlyField((2, 3))
+    warp_data = SimpleNamespace(qpos=field)
+    value = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+
+    mujoco_warp._write_required_field(SimpleNamespace(), warp_data, "qpos", value)
+
+    np.testing.assert_allclose(field.data, value)
+
+
+def test_write_required_field_partial_chunk_zeroes_inactive_worlds_with_whole_batch_fallback():
+    from handcdo.backends import mujoco_warp
+
+    field = WholeBatchOnlyField((3, 2), fill=99.0)
+    warp_data = SimpleNamespace(ctrl=field)
+    value = np.array([[0.25, 0.75]])
+
+    mujoco_warp._write_required_field(SimpleNamespace(), warp_data, "ctrl", value)
+
+    np.testing.assert_allclose(field.data[0], value[0])
+    np.testing.assert_allclose(field.data[1:], np.zeros((2, 2)))
+
+
+def test_write_required_field_raises_when_no_write_method_is_supported():
+    from handcdo.backends import mujoco_warp
+    from handcdo.backends.mujoco_warp import MujocoWarpCapabilityError
+
+    warp_data = SimpleNamespace(qvel=RejectAllWriteField((2, 3)))
+
+    with pytest.raises(MujocoWarpCapabilityError, match="Could not write MuJoCo Warp field"):
+        mujoco_warp._write_required_field(SimpleNamespace(), warp_data, "qvel", np.ones((2, 3)))
 
 
 def test_capture_graph_request_is_reported_unsupported(monkeypatch):

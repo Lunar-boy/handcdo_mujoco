@@ -65,6 +65,7 @@ class WarpBatchCapabilities:
     ctrl_write_method: str | None = None
     xfrc_write_method: str | None = None
     kinematics_update_method: str | None = None
+    field_reports: dict[str, dict[str, Any]] | None = None
 
     @property
     def supports_true_fixed_grasp_batching(self) -> bool:
@@ -210,6 +211,16 @@ def _field_host_array(value: Any) -> Any | None:
         return None
 
 
+def _field_diagnostics(value: Any) -> dict[str, Any]:
+    dtype = getattr(value, "dtype", None)
+    device = getattr(value, "device", None)
+    return {
+        "type": type(value).__name__,
+        "dtype": str(dtype) if dtype is not None else None,
+        "device": str(device) if device is not None else None,
+    }
+
+
 def _slice_world(field: Any, world_index: int) -> tuple[Any | None, str | None]:
     try:
         return field[world_index, ...], None
@@ -266,6 +277,85 @@ def _try_warp_copy_assignment(target: Any, value: Any, warp_module: Any | None) 
         except Exception:
             continue
     return False, "warp.copy failed for positional and keyword call forms"
+
+
+def try_write_batched_field(
+    field: object,
+    value: Any,
+    *,
+    field_name: str,
+    mjw: object | None = None,
+    warp_module: object | None = None,
+) -> tuple[bool, str, str]:
+    """Try guarded whole-batch writes into a MuJoCo Warp field."""
+    del mjw
+    errors: list[str] = []
+    try:
+        field[...] = value
+        return True, "whole_batch_setitem", "whole-field Python assignment succeeded"
+    except Exception as exc:
+        errors.append(f"whole_batch_setitem: {type(exc).__name__}: {exc}")
+
+    for method_name in ("assign", "copy_", "copy"):
+        method = getattr(field, method_name, None)
+        if not callable(method):
+            errors.append(f"whole_batch_{method_name}: unavailable")
+            continue
+        try:
+            method(value)
+            return True, f"whole_batch_{method_name}", f"whole-field {method_name} succeeded"
+        except Exception as exc:
+            errors.append(f"whole_batch_{method_name}: {type(exc).__name__}: {exc}")
+
+    if warp_module is None:
+        try:
+            warp_module = importlib.import_module("warp")
+        except Exception as exc:
+            errors.append(f"whole_batch_wp_copy: warp import failed: {type(exc).__name__}: {exc}")
+            return False, "none", f"{field_name} whole-batch write failed ({'; '.join(errors)})"
+    if not hasattr(warp_module, "copy") or not hasattr(warp_module, "from_numpy"):
+        errors.append("whole_batch_wp_copy: warp.copy/from_numpy unavailable")
+        return False, "none", f"{field_name} whole-batch write failed ({'; '.join(errors)})"
+    try:
+        import numpy as np
+
+        array_value = np.asarray(value)
+    except Exception as exc:
+        errors.append(f"whole_batch_wp_copy: could not convert value to numpy: {type(exc).__name__}: {exc}")
+        return False, "none", f"{field_name} whole-batch write failed ({'; '.join(errors)})"
+
+    from_numpy_errors: list[str] = []
+    source = None
+    kwargs: dict[str, Any] = {}
+    dtype = getattr(field, "dtype", None)
+    device = getattr(field, "device", None)
+    if dtype is not None:
+        kwargs["dtype"] = dtype
+    if device is not None:
+        kwargs["device"] = device
+    for candidate_kwargs in (kwargs, {}):
+        try:
+            source = warp_module.from_numpy(array_value, **candidate_kwargs)
+            break
+        except Exception as exc:
+            label = "inferred dtype/device" if candidate_kwargs else "default dtype/device"
+            from_numpy_errors.append(f"{label}: {type(exc).__name__}: {exc}")
+    if source is None:
+        errors.append(f"whole_batch_wp_copy: warp.from_numpy failed ({'; '.join(from_numpy_errors)})")
+        return False, "none", f"{field_name} whole-batch write failed ({'; '.join(errors)})"
+
+    copy_errors: list[str] = []
+    for label, call in (
+        ("positional", lambda: warp_module.copy(field, source)),
+        ("keyword", lambda: warp_module.copy(dest=field, src=source)),
+    ):
+        try:
+            call()
+            return True, "whole_batch_wp_copy", "Warp-native whole-field copy succeeded"
+        except Exception as exc:
+            copy_errors.append(f"{label}: {type(exc).__name__}: {exc}")
+    errors.append(f"whole_batch_wp_copy: warp.copy failed ({'; '.join(copy_errors)})")
+    return False, "none", f"{field_name} whole-batch write failed ({'; '.join(errors)})"
 
 
 def _try_write_field_per_world(
@@ -328,11 +418,16 @@ def _restore_field(
     mjw: Any | None = None,
     warp_module: Any | None = None,
 ) -> tuple[bool, str | None]:
-    try:
-        field[...] = snapshot
+    restored, method, reason = try_write_batched_field(
+        field,
+        snapshot,
+        field_name=field_name,
+        mjw=mjw,
+        warp_module=warp_module,
+    )
+    if restored:
         return True, None
-    except Exception as exc:
-        whole_error = f"{type(exc).__name__}: {exc}"
+    whole_error = f"{method}: {reason}"
     errors: list[str] = []
     for world_index in range(int(snapshot.shape[0])):
         restored, method, reason = _try_write_field_per_world(
@@ -350,23 +445,57 @@ def _restore_field(
     return False, f"whole-field restore failed: {whole_error}; per-world restore failed: {'; '.join(errors)}"
 
 
-def _mutated_snapshot_for_world(snapshot: Any, world_index: int) -> Any | None:
+def _mutated_snapshot_for_worlds(snapshot: Any, nworld: int) -> Any | None:
     try:
         import numpy as np
     except Exception:
         return None
 
     mutated = np.array(snapshot, copy=True)
-    try:
-        world_view = mutated[world_index]
-    except Exception:
+    if int(mutated.shape[0]) < 1 or nworld < 1:
         return None
-    if world_view.size == 0:
-        return None
-    flat = world_view.reshape(-1)
-    baseline = float(flat[0])
-    flat[0] = baseline + 0.125 if baseline != 0.125 else baseline + 0.25
+    world_count = min(int(mutated.shape[0]), int(nworld), 2)
+    for world_index in range(world_count):
+        try:
+            world_view = mutated[world_index]
+        except Exception:
+            return None
+        if world_view.size == 0:
+            return None
+        flat = world_view.reshape(-1)
+        baseline = float(flat[0])
+        delta = 0.125 + 0.25 * world_index
+        flat[0] = baseline + delta if baseline != delta else baseline + delta + 0.5
     return mutated
+
+
+def _verify_batched_write(
+    observed: Any,
+    expected: Any,
+    original: Any,
+    *,
+    nworld: int,
+) -> tuple[bool, str | None]:
+    try:
+        import numpy as np
+
+        if observed is None:
+            return False, "field could not be copied to host after write"
+        if int(observed.shape[0]) < nworld:
+            return False, f"readback leading dimension {observed.shape[0]} is smaller than nworld={nworld}"
+        if not np.allclose(observed[0], expected[0]):
+            return False, "world 0 did not match the mutated value"
+        if nworld >= 2:
+            if not np.allclose(observed[1], expected[1]):
+                return False, "world 1 did not match its distinct mutated value"
+            if np.allclose(expected[0], expected[1]):
+                return False, "world 0 and world 1 mutations were not distinct"
+        if int(original.shape[0]) > min(nworld, 2):
+            if not np.allclose(observed[min(nworld, 2) :], original[min(nworld, 2) :]):
+                return False, "untouched worlds changed during write verification"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, None
 
 
 def _field_report(
@@ -386,10 +515,12 @@ def _field_report(
         "present": present,
         "shape": list(shape) if shape is not None else None,
         "batched": batched,
+        **(_field_diagnostics(field) if present else {"type": None, "dtype": None, "device": None}),
         "write_tested": False,
         "write_method": None,
         "write_roundtrip_verified": False,
         "restore_ok": None,
+        "write_attempts": [],
         "reason": "",
     }
     if not present:
@@ -406,26 +537,65 @@ def _field_report(
     if snapshot is None:
         report["reason"] = f"{field_name} could not be copied to host for round-trip verification"
         return report
-    mutated = _mutated_snapshot_for_world(snapshot, 0)
+    mutated = _mutated_snapshot_for_worlds(snapshot, nworld)
     if mutated is None:
         report["reason"] = f"{field_name} has no writable scalar entries to verify"
         return report
 
     synchronize_warp()
-    wrote, write_method, write_reason = _try_write_field_per_world(
-        field,
-        field_name=field_name,
-        world_index=0,
-        value=mutated[0],
-        mjw=mjw,
-        warp_module=warp_module,
-    )
+    wrote = True
+    write_method = "none"
+    per_world_reasons: list[str] = []
+    for world_index in range(min(nworld, 2)):
+        world_wrote, world_method, world_reason = _try_write_field_per_world(
+            field,
+            field_name=field_name,
+            world_index=world_index,
+            value=mutated[world_index],
+            mjw=mjw,
+            warp_module=warp_module,
+        )
+        report["write_attempts"].append(
+            {
+                "method": f"per_world_{world_method}",
+                "world_index": world_index,
+                "success": world_wrote,
+                "reason": world_reason,
+            }
+        )
+        if not world_wrote:
+            wrote = False
+            per_world_reasons.append(f"world {world_index}: {world_method}: {world_reason}")
+            break
+        write_method = world_method
     synchronize_warp()
     if not wrote:
-        report["write_method"] = write_method
-        report["restore_ok"] = None
-        report["reason"] = f"{field_name} per-world assignment failed: {write_reason}"
-        return report
+        whole_wrote, whole_method, whole_reason = try_write_batched_field(
+            field,
+            mutated,
+            field_name=field_name,
+            mjw=mjw,
+            warp_module=warp_module,
+        )
+        report["write_attempts"].append(
+            {
+                "method": whole_method if whole_method != "none" else "whole_batch",
+                "success": whole_wrote,
+                "reason": whole_reason,
+            }
+        )
+        wrote = whole_wrote
+        write_method = whole_method
+        if not wrote:
+            report["write_method"] = write_method
+            report["restore_ok"] = None
+            report["reason"] = (
+                f"{field_name} per-world assignment failed ({'; '.join(per_world_reasons)}); "
+                f"whole-batch assignment failed: {whole_reason}"
+            )
+            _restore_field(field, snapshot, field_name=field_name, mjw=mjw, warp_module=warp_module)
+            synchronize_warp()
+            return report
 
     observed = _field_host_array(field)
     restored, restore_error = _restore_field(
@@ -445,25 +615,25 @@ def _field_report(
         report["reason"] = f"{field_name} write could not be verified by host round trip"
         return report
 
+    write_ok, write_error = _verify_batched_write(observed, mutated, snapshot, nworld=nworld)
+    if not write_ok:
+        report["reason"] = f"{field_name} write verification failed: {write_error}"
+        return report
     try:
         import numpy as np
 
         restored_snapshot = _field_host_array(field)
-        write_ok = bool(
-            np.allclose(observed[0], mutated[0])
-            and restored_snapshot is not None
-            and np.allclose(restored_snapshot, snapshot)
-        )
+        restore_verified = restored_snapshot is not None and np.allclose(restored_snapshot, snapshot)
     except Exception as exc:
-        report["reason"] = f"{field_name} write verification failed: {type(exc).__name__}: {exc}"
+        report["reason"] = f"{field_name} restore verification failed: {type(exc).__name__}: {exc}"
         return report
-    if not write_ok:
-        report["reason"] = f"{field_name} per-world write did not round-trip cleanly"
+    if not restore_verified:
+        report["reason"] = f"{field_name} original values were not restored after write probe"
         return report
 
     report["write_tested"] = True
     report["write_roundtrip_verified"] = True
-    report["reason"] = f"per-world write round-trip verified via {write_method} and original values restored"
+    report["reason"] = f"batched write round-trip verified via {write_method} and original values restored"
     return report
 
 
@@ -495,13 +665,13 @@ def smoke_test_warp_per_world_state_write(
         if field["present"] and field["batched"] and not field["write_tested"]
     ]
     if ok:
-        reason = "verified per-world writes for qpos, qvel, ctrl, and xfrc_applied"
+        reason = "verified batched writes for qpos, qvel, ctrl, and xfrc_applied"
     elif missing:
         reason = f"missing fields: {', '.join(missing)}"
     elif unbatched:
         reason = f"fields are not batched with leading nworld={nworld}: {', '.join(unbatched)}"
     else:
-        reason = f"fields lack verified per-world write support: {', '.join(unverified)}"
+        reason = f"fields lack verified batched write support: {', '.join(unverified)}"
     return {"ok": ok, "fields": fields, "reason": reason}
 
 
@@ -535,7 +705,7 @@ def _required_batching_reasons(
         elif not report.get("batched", False):
             reasons.append(f"warp_data.{field_name} does not have leading nworld={nworld}")
         elif not report.get("write_tested", False):
-            reasons.append(f"warp_data.{field_name} lacks verified per-world write support")
+            reasons.append(f"warp_data.{field_name} lacks verified batched write support")
     for field_name in ("xpos", "xmat"):
         report = field_reports.get(field_name, {})
         if not report.get("present", False):
@@ -664,6 +834,7 @@ def inspect_warp_batch_capabilities(
         can_set_per_world_ctrl=field_reports.get("ctrl", {}).get("write_tested", False),
         can_set_per_world_xfrc=field_reports.get("xfrc_applied", {}).get("write_tested", False),
         kinematics_update_method=kinematics_update_method,
+        field_reports=field_reports or None,
     )
 
 
@@ -704,6 +875,7 @@ def warp_capabilities_payload(capabilities: WarpBatchCapabilities) -> dict[str, 
         "can_set_per_world_xfrc": capabilities.can_set_per_world_xfrc,
         "supports_true_fixed_grasp_batching": capabilities.supports_true_fixed_grasp_batching,
         "true_fixed_grasp_batching_reason": capabilities.true_fixed_grasp_batching_reason,
+        "field_reports": capabilities.field_reports or {},
     }
 
 
