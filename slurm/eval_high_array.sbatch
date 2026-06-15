@@ -29,6 +29,9 @@ export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 
 mkdir -p "${OUTPUT_DIR}" "${RESULTS_DIR}" logs
 
+module purge
+ml load release/25.06 GCCcore/13.3.0 Python/3.12.3
+
 if [[ ! -f "${DESIGN_IDS}" ]]; then
   echo "ERROR: design-id file not found: ${DESIGN_IDS}" >&2
   echo "Create it first, for example:" >&2

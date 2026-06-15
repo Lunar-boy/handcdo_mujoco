@@ -13,6 +13,8 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 
+module purge
+ml load release/25.06 GCCcore/13.3.0 Python/3.12.3
 
 ./.venv/bin/python scripts/run_optuna_round.py \
   --study-name handcdo-mujoco \

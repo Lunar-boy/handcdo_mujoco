@@ -25,6 +25,9 @@ export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 
 mkdir -p "${RESULTS_DIR}" logs
 
+module purge
+ml load release/25.06 GCCcore/13.3.0 Python/3.12.3
+
 if [[ -f ".venv/bin/activate" ]]; then
   # shellcheck disable=SC1091
   source ".venv/bin/activate"
