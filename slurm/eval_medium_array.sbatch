@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=handcdo-medium
 #SBATCH --array=0-19%8
 #SBATCH --nodes=1
@@ -28,6 +28,14 @@ export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 
 mkdir -p "${OUTPUT_DIR}" "${RESULTS_DIR}" logs
+
+if [[ -r /etc/profile.d/modules.sh ]]; then
+  source /etc/profile.d/modules.sh
+elif [[ -r /usr/share/lmod/lmod/init/bash ]]; then
+  source /usr/share/lmod/lmod/init/bash
+elif [[ -r /etc/profile ]]; then
+  source /etc/profile
+fi
 
 module purge
 ml load release/25.06 GCCcore/13.3.0 Python/3.12.3

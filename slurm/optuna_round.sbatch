@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -l
 #SBATCH --job-name=handcdo-optuna
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -28,6 +28,14 @@ TOOLS="${TOOLS:-hammer,spoon,knife}"
 BACKEND="${BACKEND:-mujoco_cpu}"
 CONFIG_PATH="${CONFIG_PATH:-configs/default_eval.yaml}"
 SEARCH_SPACE="${SEARCH_SPACE:-configs/search_space.yaml}"
+
+if [[ -r /etc/profile.d/modules.sh ]]; then
+  source /etc/profile.d/modules.sh
+elif [[ -r /usr/share/lmod/lmod/init/bash ]]; then
+  source /usr/share/lmod/lmod/init/bash
+elif [[ -r /etc/profile ]]; then
+  source /etc/profile
+fi
 
 module purge
 ml load "${MODULE_RELEASE}" "${MODULE_GCCCORE}" "${MODULE_PYTHON}"
