@@ -61,7 +61,7 @@ Submit the array:
 
 ```bash
 mkdir -p logs
-sbatch slurm/eval_array.sbatch
+sbatch slurm/eval_fast_array.sbatch
 ```
 
 Each array task reads `SLURM_ARRAY_TASK_ID`, evaluates its assigned designs, catches per-design failures, and writes partial JSON results under `outputs/results`.
