@@ -36,6 +36,19 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
     if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
+    if geometry_config.finger.fingertip_body_shape not in {"capsule", "ellipsoid"}:
+        raise ValueError(
+            "finger.fingertip_body_shape "
+            f"{geometry_config.finger.fingertip_body_shape!r} is not supported; "
+            "expected 'capsule' or 'ellipsoid'"
+        )
+    if (
+        geometry_config.finger.fingertip_body_shape == "ellipsoid"
+        and geometry_config.finger.fingertip_pad_enabled
+    ):
+        raise NotImplementedError(
+            "fingertip pads on ellipsoid fingertip bodies are not implemented yet"
+        )
     if geometry_config.palm.mode not in {
         "box_pads",
         "pad_grid",
@@ -103,18 +116,51 @@ def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContac
             armature="0.002",
             limited="true",
         )
-        ET.SubElement(
-            current,
-            "geom",
-            name=link.name,
-            type="capsule",
-            fromto=_vec((0.0, 0.0, 0.0, link.length, 0.0, 0.0)),
-            size=f"{link.radius:.8g}",
-            density="650",
-            friction="1.1 0.02 0.002",
-            contype="1",
-            conaffinity="1",
-        )
+        if (
+            link.fingertip
+            and finger_config.fingertip_body_shape == "ellipsoid"
+            and link.fingertip_geometry is not None
+        ):
+            tip_geometry = link.fingertip_geometry
+            if tip_geometry.shaft_length > 1e-8:
+                shaft_radius = min(link.radius, tip_geometry.half_y, tip_geometry.half_z)
+                ET.SubElement(
+                    current,
+                    "geom",
+                    name=f"{link.name}_shaft",
+                    type="capsule",
+                    fromto=_vec((0.0, 0.0, 0.0, tip_geometry.shaft_length, 0.0, 0.0)),
+                    size=f"{shaft_radius:.8g}",
+                    density="650",
+                    friction="1.1 0.02 0.002",
+                    contype="1",
+                    conaffinity="1",
+                )
+            ET.SubElement(
+                current,
+                "geom",
+                name=f"{link.name}_tip_ellipsoid",
+                type="ellipsoid",
+                pos=_vec((link.length - tip_geometry.half_x, 0.0, 0.0)),
+                size=_vec((tip_geometry.half_x, tip_geometry.half_y, tip_geometry.half_z)),
+                density="650",
+                friction="1.1 0.02 0.002",
+                contype="1",
+                conaffinity="1",
+            )
+        else:
+            ET.SubElement(
+                current,
+                "geom",
+                name=link.name,
+                type="capsule",
+                fromto=_vec((0.0, 0.0, 0.0, link.length, 0.0, 0.0)),
+                size=f"{link.radius:.8g}",
+                density="650",
+                friction="1.1 0.02 0.002",
+                contype="1",
+                conaffinity="1",
+            )
         if link.fingertip and finger_config.fingertip_pad_enabled:
             _add_fingertip_pad_geom(current, link, finger_config)
         current = ET.SubElement(current, "body", name=f"{link.name}_tip", pos=_vec((link.length, 0.0, 0.0)))

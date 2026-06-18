@@ -4,6 +4,8 @@ This repository now has a typed `GeometryConfig` schema for finger, palm, and to
 
 The default `finger.mode: capsule` geometry emits one capsule per link and preserves the original generated MJCF.
 
+The opt-in `finger.fingertip_body_shape: ellipsoid` setting replaces each terminal fingertip capsule with a proximal capsule shaft and a distal ellipsoid. The ellipsoid's local Y and Z half-sizes independently use the design's `fingertip_scale_y` and `fingertip_scale_z` parameters. The default value is `capsule`, so existing configurations and generated MJCF remain unchanged. This is a primitive contact-geometry approximation of the paper's anisotropic fingertip dimensions and is not a claim of numerical equivalence.
+
 The optional `finger.mode: capsule_tip_pad` geometry keeps every capsule link and, when `fingertip_pad_enabled: true`, adds one primitive box contact pad to each fingertip link. The pad dimensions and placement are deterministically derived from the fingertip link dimensions. Setting `capsule_tip_pad` with `fingertip_pad_enabled: false` is treated as capsule-only geometry and does not emit pad geoms.
 
 Use `configs/geometry_tip_pad.yaml` for a runnable tip-pad configuration. Other fingertip pad shapes remain reserved by the schema but are not implemented.
