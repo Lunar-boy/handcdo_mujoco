@@ -101,6 +101,14 @@ def test_geometry_config_parses_palm_convex_patch_fields():
     assert config.palm.convex_patch_margin_ratio == 0.2
 
 
+def test_geometry_config_minimal_palm_convex_patches_uses_valid_defaults():
+    config = GeometryConfig.from_dict({"geometry": {"palm": {"mode": "convex_patches"}}})
+
+    assert config.palm.mode == "convex_patches"
+    assert config.palm.convex_patch_resolution == 4
+    assert config.palm.convex_patch_resolution**2 <= config.palm.max_num_pad_geoms
+
+
 def test_geometry_config_invalid_mode_raises_value_error():
     with pytest.raises(ValueError, match="geometry.finger.mode='spheres'"):
         GeometryConfig.from_dict({"geometry": {"finger": {"mode": "spheres"}}})

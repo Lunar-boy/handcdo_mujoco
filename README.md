@@ -212,7 +212,7 @@ The three fidelity levels are:
 
 Final conclusions should be based on high-fidelity scores whenever available. The merged CSV keeps separate score columns for each fidelity level so ranking drift between fast, medium, and high evaluation remains visible.
 
-An additional explicit `configs/geometry_palm_convex_patches.yaml` configuration is available for palm-contact ablations or selected-design re-evaluation. It maps the existing palm kernel parameters to a bounded deterministic grid of height-varying MuJoCo box patches. This is a CPU-only contact approximation, not deformable mesh or soft-body simulation, and it does not replace the default high-fidelity configuration. See [docs/geometry_config.md](docs/geometry_config.md).
+An additional explicit convex-patch configuration is available for palm-contact ablations or selected-design re-evaluation. It maps the existing palm kernel parameters to a bounded deterministic grid of height-varying MuJoCo box patches. Use `configs/eval_palm_convex_patches.yaml` for a complete high-fidelity evaluation configuration; `configs/geometry_palm_convex_patches.yaml` is geometry-only. This is a CPU-only contact approximation, not deformable mesh or soft-body simulation, and it does not replace the default high-fidelity configuration. See [docs/geometry_config.md](docs/geometry_config.md).
 
 ### 1. Generate candidate designs
 

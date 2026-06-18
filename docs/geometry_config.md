@@ -16,7 +16,9 @@ Use `configs/geometry_medium.yaml` for a runnable configuration combining finger
 
 The optional `palm.mode: convex_patches` geometry converts the existing `palm_kernel_*` design parameters into a deterministic grid of local box contact patches. Patch heights sample two Gaussian-like kernel bumps across the palm surface, while `convex_patch_resolution`, `convex_patch_max_height`, `convex_patch_base_thickness`, `convex_patch_min_height`, and `convex_patch_margin_ratio` control grid density and bounds. The total patch count is fixed at `convex_patch_resolution^2` and must not exceed `max_num_pad_geoms`.
 
-This is a CPU-only, MuJoCo-stable local convex patch approximation of paper-style palm surface deformation. It is not full mesh deformation, soft-body simulation, or a claim of numerical equivalence to the paper. Use `configs/geometry_palm_convex_patches.yaml` as an explicit opt-in for high-fidelity re-evaluation and geometry ablations; the default and existing fast, medium, and high configurations remain unchanged.
+This is a CPU-only, MuJoCo-stable local convex patch approximation of paper-style palm surface deformation. It is not full mesh deformation, soft-body simulation, or a claim of numerical equivalence to the paper. The default and existing fast, medium, and high configurations remain unchanged.
+
+`configs/geometry_palm_convex_patches.yaml` is a geometry-only reference configuration. `configs/eval_palm_convex_patches.yaml` combines the same geometry with the complete simulation and grasp settings from `configs/eval_high.yaml`; use that full config for high-fidelity re-evaluation.
 
 For example, re-evaluate a fixed design set with the convex-patch geometry:
 
@@ -26,7 +28,7 @@ python3 scripts/reevaluate_designs.py \
   --design-ids outputs/high/design_ids.txt \
   --results-dir outputs/palm_convex_patches/results \
   --output-dir outputs/palm_convex_patches \
-  --config configs/geometry_palm_convex_patches.yaml \
+  --config configs/eval_palm_convex_patches.yaml \
   --fidelity palm_convex_patches \
   --tools hammer,spoon,knife \
   --backend mujoco_cpu \

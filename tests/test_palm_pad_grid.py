@@ -30,6 +30,13 @@ def _convex_patch_geoms(xml: str) -> list[ET.Element]:
     ]
 
 
+def _patch_bump_heights(xml: str, base_thickness: float) -> list[float]:
+    return [
+        2.0 * (float(geom.attrib["size"].split()[2]) - base_thickness)
+        for geom in _convex_patch_geoms(xml)
+    ]
+
+
 def test_default_geometry_preserves_original_palm_pads_and_xml_exactly():
     hand = build_hand_model(DesignSpace().sample(seed=50))
 
@@ -116,6 +123,83 @@ def test_convex_palm_patches_generate_deterministic_height_varying_box_geoms():
         assert geom.attrib["contype"] == "1"
         assert geom.attrib["conaffinity"] == "1"
         assert geom.attrib["friction"] == _vec(palm_config.pad_friction)
+
+
+def test_convex_patch_max_height_above_design_height_does_not_override_design():
+    design = DesignSpace().sample(seed=59)
+    params = design.to_dict()
+    params["palm_kernel_max_height"] = 0.005
+    hand = build_hand_model(type(design)(params))
+    uncapped = GeometryConfig(
+        palm=PalmContactConfig(
+            mode="convex_patches",
+            convex_patch_resolution=4,
+            max_num_pad_geoms=16,
+        )
+    )
+    high_cap = GeometryConfig(
+        palm=PalmContactConfig(
+            mode="convex_patches",
+            convex_patch_resolution=4,
+            max_num_pad_geoms=16,
+            convex_patch_max_height=0.02,
+        )
+    )
+
+    assert build_mjcf_xml(hand, geometry_config=high_cap) == build_mjcf_xml(
+        hand, geometry_config=uncapped
+    )
+
+
+def test_convex_patch_max_height_caps_design_height():
+    design = DesignSpace().sample(seed=60)
+    params = design.to_dict()
+    params["palm_kernel_max_height"] = 0.035
+    hand = build_hand_model(type(design)(params))
+    base_thickness = 0.0025
+    uncapped = GeometryConfig(
+        palm=PalmContactConfig(
+            mode="convex_patches",
+            convex_patch_resolution=4,
+            max_num_pad_geoms=16,
+            convex_patch_base_thickness=base_thickness,
+        )
+    )
+    capped = GeometryConfig(
+        palm=PalmContactConfig(
+            mode="convex_patches",
+            convex_patch_resolution=4,
+            max_num_pad_geoms=16,
+            convex_patch_max_height=0.01,
+            convex_patch_base_thickness=base_thickness,
+        )
+    )
+
+    uncapped_bumps = _patch_bump_heights(build_mjcf_xml(hand, geometry_config=uncapped), base_thickness)
+    capped_bumps = _patch_bump_heights(build_mjcf_xml(hand, geometry_config=capped), base_thickness)
+
+    assert max(capped_bumps) <= 0.01
+    assert max(capped_bumps) < max(uncapped_bumps)
+
+
+def test_zero_design_height_emits_only_convex_patch_base_thickness():
+    design = DesignSpace().sample(seed=61)
+    params = design.to_dict()
+    params["palm_kernel_max_height"] = 0.0
+    hand = build_hand_model(type(design)(params))
+    base_thickness = 0.0025
+    config = GeometryConfig(
+        palm=PalmContactConfig(
+            mode="convex_patches",
+            convex_patch_resolution=4,
+            max_num_pad_geoms=16,
+            convex_patch_base_thickness=base_thickness,
+        )
+    )
+
+    bumps = _patch_bump_heights(build_mjcf_xml(hand, geometry_config=config), base_thickness)
+
+    assert bumps == pytest.approx([0.0] * 16)
 
 
 @pytest.mark.parametrize(

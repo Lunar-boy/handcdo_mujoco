@@ -179,11 +179,10 @@ def _add_palm_convex_patches(parent: ET.Element, hand: HandModel, palm_config: P
     patch_half_x = 0.85 * cell_half_x
     patch_half_y = 0.85 * cell_half_y
     params = hand.design.params
-    max_height = (
-        palm_config.convex_patch_max_height
-        if palm_config.convex_patch_max_height is not None
-        else float(params["palm_kernel_max_height"])
-    )
+    design_max_height = float(params["palm_kernel_max_height"])
+    max_height = design_max_height
+    if palm_config.convex_patch_max_height is not None:
+        max_height = min(design_max_height, palm_config.convex_patch_max_height)
     eps = 1e-6
     kernels = []
     for index in (1, 2):
@@ -206,9 +205,10 @@ def _add_palm_convex_patches(parent: ET.Element, hand: HandModel, palm_config: P
             for center_x, center_y, spread, intensity in kernels:
                 distance_sq = (x - center_x) ** 2 + (y - center_y) ** 2
                 local_height += intensity * max_height * math.exp(-distance_sq / (2.0 * spread**2))
-            local_height = max(palm_config.convex_patch_min_height, local_height)
-            if max_height > 0:
-                local_height = min(max_height, local_height)
+            if max_height <= 0:
+                local_height = 0.0
+            else:
+                local_height = min(max_height, max(palm_config.convex_patch_min_height, local_height))
 
             patch_half_z = palm_config.convex_patch_base_thickness + 0.5 * local_height
             ET.SubElement(

@@ -19,7 +19,7 @@ class PalmContactConfig:
     pad_resolution: int = 2
     pad_friction: tuple[float, float, float] = (1.4, 0.02, 0.002)
     max_num_pad_geoms: int = 16
-    convex_patch_resolution: int = 6
+    convex_patch_resolution: int = 4
     convex_patch_max_height: float | None = None
     convex_patch_base_thickness: float = 0.0025
     convex_patch_min_height: float = 0.0005
