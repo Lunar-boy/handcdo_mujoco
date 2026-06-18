@@ -1,0 +1,6 @@
+palm_surface_mesh:
+  resolution: 32
+  margin_ratio: 0.0
+  include_skirt: true
+  skirt_depth: 0.003
+  formats: [obj, stl]

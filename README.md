@@ -214,6 +214,20 @@ Final conclusions should be based on high-fidelity scores whenever available. Th
 
 An additional explicit convex-patch configuration is available for palm-contact ablations or selected-design re-evaluation. It maps the existing palm kernel parameters to a bounded deterministic grid of height-varying MuJoCo box patches. Use `configs/eval_palm_convex_patches.yaml` for a complete high-fidelity evaluation configuration; `configs/geometry_palm_convex_patches.yaml` is geometry-only. This is a CPU-only contact approximation, not deformable mesh or soft-body simulation, and it does not replace the default high-fidelity configuration. See [docs/geometry_config.md](docs/geometry_config.md).
 
+### Palm surface mesh export
+
+Export a selected design's Gaussian-deformed palm top surface as a static visual OBJ/STL mesh:
+
+```bash
+python3 scripts/export_palm_surface_mesh.py \
+  --design-json outputs/designs/<design_id>/design.json \
+  --output-dir outputs/designs/<design_id>/meshes \
+  --resolution 32 \
+  --formats obj,stl
+```
+
+The exporter uses the existing `palm_kernel_*` design parameters and does not alter evaluation or MuJoCo collision geometry. It is not runtime deformable simulation or fabrication-ready full-hand generation. Batch usage and geometry details are documented in [docs/geometry_config.md](docs/geometry_config.md).
+
 ### 1. Generate candidate designs
 
 ```bash
