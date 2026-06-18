@@ -100,3 +100,29 @@ def test_invalid_fingertip_body_shape_is_rejected():
         GeometryConfig.from_dict(
             {"geometry": {"finger": {"fingertip_body_shape": "bad"}}}
         )
+
+
+def test_invalid_direct_fingertip_body_shape_is_rejected_during_mjcf_generation():
+    hand = build_hand_model(DesignSpace().sample(seed=8))
+    config = GeometryConfig(
+        finger=FingerContactConfig(fingertip_body_shape="bad")
+    )
+
+    with pytest.raises(ValueError, match="fingertip_body_shape"):
+        build_mjcf_xml(hand, geometry_config=config)
+
+
+def test_ellipsoid_fingertip_body_rejects_fingertip_pad_enabled():
+    hand = build_hand_model(DesignSpace().sample(seed=9))
+    config = GeometryConfig(
+        finger=FingerContactConfig(
+            fingertip_body_shape="ellipsoid",
+            fingertip_pad_enabled=True,
+        )
+    )
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"fingertip pads?.*ellipsoid|ellipsoid.*fingertip pads?",
+    ):
+        build_mjcf_xml(hand, geometry_config=config)

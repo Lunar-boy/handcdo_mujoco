@@ -36,6 +36,19 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
     if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
+    if geometry_config.finger.fingertip_body_shape not in {"capsule", "ellipsoid"}:
+        raise ValueError(
+            "finger.fingertip_body_shape "
+            f"{geometry_config.finger.fingertip_body_shape!r} is not supported; "
+            "expected 'capsule' or 'ellipsoid'"
+        )
+    if (
+        geometry_config.finger.fingertip_body_shape == "ellipsoid"
+        and geometry_config.finger.fingertip_pad_enabled
+    ):
+        raise NotImplementedError(
+            "fingertip pads on ellipsoid fingertip bodies are not implemented yet"
+        )
     if geometry_config.palm.mode not in {
         "box_pads",
         "pad_grid",
