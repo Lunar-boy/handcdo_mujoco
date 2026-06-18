@@ -19,12 +19,55 @@ def run_analysis(input_csv: str | Path, output_dir: str | Path, target: str = "h
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     df = pd.read_csv(input_csv)
-    df = df[df.get("failed", False) != True].copy()  # noqa: E712
+
+    if target not in df.columns:
+        raise ValueError(f"Missing target column: {target}")
+
+    df = df.copy()
+
+    if "failed" in df.columns:
+        failed_mask = df["failed"].astype(str).str.strip().str.lower().isin(
+            {"1", "true", "t", "yes", "y"}
+        )
+        df = df[~failed_mask].copy()
+
+    df[target] = pd.to_numeric(df[target], errors="coerce")
+    df = df.dropna(subset=[target])
+
     if df.empty:
         raise ValueError("No successful rows available for analysis")
+
     y = df[target].astype(float)
-    drop = {"design_id", target, "failed", "error"}
-    feature_df = df[[c for c in df.columns if c not in drop and not c.endswith("_best_score")]]
+
+    drop_exact = {
+        "design_id",
+        target,
+        "best_available_score",
+        "failed",
+        "error",
+        "fidelity",
+    }
+    drop_prefixes = (
+        "failed_",
+        "error_",
+        "backend_",
+        "config_path_",
+        "n_grasp_trials_",
+        "sampler_",
+        "seed_",
+        "hand_score_",
+    )
+
+    def keep_feature(column: str) -> bool:
+        if column in drop_exact:
+            return False
+        if column.endswith("_best_score") or "_best_score_" in column:
+            return False
+        if any(column.startswith(prefix) for prefix in drop_prefixes):
+            return False
+        return True
+
+    feature_df = df[[c for c in df.columns if keep_feature(c)]]
     cat_cols = [c for c in feature_df.columns if not pd.api.types.is_numeric_dtype(feature_df[c])]
     num_cols = [c for c in feature_df.columns if c not in cat_cols]
     feature_df = feature_df.copy()
