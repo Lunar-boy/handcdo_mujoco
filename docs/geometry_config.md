@@ -37,6 +37,23 @@ python3 scripts/reevaluate_designs.py \
 
 For an ablation, evaluate the same design IDs and seeds with `box_pads`, `pad_grid`, and `convex_patches`, then compare success counts, runtime, rank correlation, top-k overlap, and selected best designs. Scores from different geometry modes should be labeled and should not be treated as directly interchangeable.
 
+## Palm surface mesh export
+
+The optional palm surface exporter generates a static, vertex-level deformed palm top-surface mesh. It applies the same two Gaussian-kernel height-field idea used by `convex_patches`, but writes OBJ/STL visual meshes instead of changing MuJoCo collision geometry. `palm_kernel_max_height` remains the design amplitude, and an optional export cap only limits that amplitude.
+
+```bash
+python3 scripts/export_palm_surface_mesh.py \
+  --design-dir outputs/designs \
+  --design-ids outputs/high/design_ids.txt \
+  --output-dir outputs/palm_surface_mesh_exports \
+  --resolution 32 \
+  --formats obj,stl
+```
+
+Outputs are written under `outputs/palm_surface_mesh_exports/<design_id>/`. The reference settings in `configs/palm_surface_mesh_export.yaml` document the available mesh options but are not wired into evaluation.
+
+This is not runtime deformable simulation, full fabrication-ready hand generation, or a replacement for MuJoCo collision geoms. Simulation collision remains controlled exclusively by `geometry.palm.mode`, so exporting a mesh does not change evaluation scores.
+
 The default `tool.mode: primitive` preserves the original primitive hammer, spoon, and knife models. `tool.mode: hybrid` discovers optional visual and collision meshes under `assets/tools/<tool_name>/`. Missing mesh assets fall back exactly to primitive tool geometry, so `configs/geometry_high.yaml` is runnable without real tool assets and does not change optimization semantics in that fallback case.
 
 Hybrid visual and collision meshes should be separate. Visual meshes are non-colliding; collision meshes should be convex or low-complexity for stable MuJoCo contact. Hybrid mode does not perform convex decomposition. See [Tool Geometry](tool_geometry.md) for file naming and path details.
