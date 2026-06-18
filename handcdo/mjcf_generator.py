@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from .design_space import HandDesign
 from .geometry_config import FingerContactConfig, GeometryConfig, PalmContactConfig, ToolContactConfig
 from .hand_model import DigitSpec, HandModel, LinkSpec, build_hand_model
+from .palm_mesh_colliders import build_palm_tiled_mesh_colliders, export_palm_tiled_mesh_colliders
 from .tool_geometry import ToolGeometryAsset, resolve_tool_geometry
 from .tools import ToolSpec, get_tool
 from .utils import ensure_dir
@@ -35,7 +36,12 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
     if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
-    if geometry_config.palm.mode not in {"box_pads", "pad_grid", "convex_patches"}:
+    if geometry_config.palm.mode not in {
+        "box_pads",
+        "pad_grid",
+        "convex_patches",
+        "tiled_mesh_colliders",
+    }:
         raise ValueError(f"Unknown palm contact mode {geometry_config.palm.mode!r}")
     if geometry_config.tool.mode == "convex_mesh":
         raise NotImplementedError(f"tool contact mode {geometry_config.tool.mode!r} is not implemented yet")
@@ -225,7 +231,49 @@ def _add_palm_convex_patches(parent: ET.Element, hand: HandModel, palm_config: P
             )
 
 
-def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig | None = None) -> None:
+def _add_palm_tiled_mesh_colliders(
+    parent: ET.Element,
+    asset_parent: ET.Element,
+    hand: HandModel,
+    palm_config: PalmContactConfig,
+) -> None:
+    colliders = build_palm_tiled_mesh_colliders(hand, palm_config)
+    for collider in colliders:
+        ET.SubElement(
+            asset_parent,
+            "mesh",
+            name=collider.name,
+            vertex=_vec(collider.mesh.vertices.ravel().tolist()),
+            face=_vec(collider.mesh.faces.ravel().tolist()),
+        )
+        ET.SubElement(
+            parent,
+            "geom",
+            name=collider.name,
+            type="mesh",
+            mesh=collider.name,
+            density="500",
+            friction=_vec(palm_config.pad_friction),
+            contype="1",
+            conaffinity="1",
+        )
+    if palm_config.mesh_collider_export:
+        if not palm_config.mesh_collider_export_dir:
+            raise ValueError(
+                "mesh_collider_export_dir must be set when mesh_collider_export is true"
+            )
+        export_palm_tiled_mesh_colliders(
+            colliders,
+            Path(palm_config.mesh_collider_export_dir) / hand.design.design_id,
+        )
+
+
+def _add_palm_geoms(
+    parent: ET.Element,
+    hand: HandModel,
+    palm_config: PalmContactConfig | None = None,
+    asset_parent: ET.Element | None = None,
+) -> None:
     palm_config = palm_config or PalmContactConfig()
     ET.SubElement(parent, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
     if palm_config.mode == "box_pads":
@@ -234,6 +282,10 @@ def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContac
         _add_palm_pad_grid(parent, hand, palm_config)
     elif palm_config.mode == "convex_patches":
         _add_palm_convex_patches(parent, hand, palm_config)
+    elif palm_config.mode == "tiled_mesh_colliders":
+        if asset_parent is None:
+            raise ValueError("tiled palm mesh colliders require a root-level MJCF asset element")
+        _add_palm_tiled_mesh_colliders(parent, asset_parent, hand, palm_config)
     else:
         raise ValueError(f"Unknown palm contact mode {palm_config.mode!r}")
 
@@ -350,15 +402,21 @@ def build_mjcf_xml(
     ET.SubElement(default, "joint", limited="true")
     ET.SubElement(default, "geom", solref="0.012 1", solimp="0.9 0.95 0.001", margin="0.001")
     asset = None
-    if tool_geometry_asset is not None and (
+    needs_tool_assets = tool_geometry_asset is not None and (
         tool_geometry_asset.visual_mesh is not None or tool_geometry_asset.collision_meshes
-    ):
+    )
+    if geometry_config.palm.mode == "tiled_mesh_colliders" or needs_tool_assets:
         asset = ET.SubElement(root, "asset")
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", name="top", pos="0 0 1.0")
     ET.SubElement(world, "geom", name="floor", type="plane", size="0.6 0.6 0.02", pos="0 0 -0.04", friction="1 0.01 0.001")
     palm = ET.SubElement(world, "body", name="palm", pos="0 0 0")
-    _add_palm_geoms(palm, hand, palm_config=geometry_config.palm)
+    _add_palm_geoms(
+        palm,
+        hand,
+        palm_config=geometry_config.palm,
+        asset_parent=asset,
+    )
     for digit in hand.digits:
         _add_digit(palm, digit, finger_config=geometry_config.finger)
     if tool is not None:

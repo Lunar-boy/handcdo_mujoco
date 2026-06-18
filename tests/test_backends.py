@@ -151,7 +151,13 @@ grasp:
         encoding="utf-8",
     )
     backend = FakeBackend()
-    monkeypatch.setattr("handcdo.optimize_hand.get_backend", lambda name: backend)
+    requested_backends = []
+
+    def fake_get_backend(name):
+        requested_backends.append(name)
+        return backend
+
+    monkeypatch.setattr("handcdo.optimize_hand.get_backend", fake_get_backend)
 
     payloads = evaluate_task(
         task_id=0,
@@ -161,12 +167,14 @@ grasp:
         config_path=config_path,
         tools=["hammer"],
         seed=0,
+        backend="mujoco",
     )
 
     assert len(payloads) == 1
     assert (result_dir / f"{design.design_id}.json").is_file()
     assert not (tmp_path / "results" / f"{design.design_id}.json").exists()
     assert (tmp_path / "designs" / design.design_id / "model.xml").is_file()
+    assert requested_backends == ["mujoco"]
     assert backend.calls[0][4] == GeometryConfig.from_dict({"geometry": {"finger": {"mode": "capsule"}}})
 
 

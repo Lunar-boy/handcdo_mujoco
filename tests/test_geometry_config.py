@@ -109,6 +109,46 @@ def test_geometry_config_minimal_palm_convex_patches_uses_valid_defaults():
     assert config.palm.convex_patch_resolution**2 <= config.palm.max_num_pad_geoms
 
 
+def test_geometry_config_parses_palm_tiled_mesh_collider_fields():
+    config = GeometryConfig.from_dict(
+        {
+            "geometry": {
+                "palm": {
+                    "mode": "tiled_mesh_colliders",
+                    "mesh_collider_resolution": 4,
+                    "mesh_collider_type": "triangular_prism",
+                    "mesh_collider_thickness": 0.004,
+                    "mesh_collider_margin_ratio": 0.1,
+                    "max_num_mesh_colliders": 32,
+                    "mesh_collider_export": True,
+                    "mesh_collider_export_dir": "outputs/colliders",
+                }
+            }
+        }
+    )
+
+    assert config.palm.mode == "tiled_mesh_colliders"
+    assert config.palm.mesh_collider_resolution == 4
+    assert config.palm.mesh_collider_type == "triangular_prism"
+    assert config.palm.mesh_collider_thickness == 0.004
+    assert config.palm.mesh_collider_margin_ratio == 0.1
+    assert config.palm.max_num_mesh_colliders == 32
+    assert config.palm.mesh_collider_export is True
+    assert config.palm.mesh_collider_export_dir == "outputs/colliders"
+
+
+def test_geometry_config_minimal_palm_tiled_mesh_colliders_uses_valid_defaults():
+    config = GeometryConfig.from_dict(
+        {"geometry": {"palm": {"mode": "tiled_mesh_colliders"}}}
+    )
+
+    assert config.palm.mesh_collider_type == "quad_frustum"
+    assert (
+        config.palm.mesh_collider_resolution**2
+        <= config.palm.max_num_mesh_colliders
+    )
+
+
 def test_geometry_config_invalid_mode_raises_value_error():
     with pytest.raises(ValueError, match="geometry.finger.mode='spheres'"):
         GeometryConfig.from_dict({"geometry": {"finger": {"mode": "spheres"}}})
@@ -130,6 +170,35 @@ def test_geometry_config_invalid_fingertip_pad_shape_raises_value_error():
         ({"geometry": {"palm": {"convex_patch_min_height": -0.001}}}, "convex_patch_min_height"),
         ({"geometry": {"palm": {"convex_patch_margin_ratio": 0.5}}}, "convex_patch_margin_ratio"),
         ({"geometry": {"palm": {"convex_patch_max_height": 0}}}, "convex_patch_max_height"),
+        ({"geometry": {"palm": {"mesh_collider_resolution": 1}}}, "mesh_collider_resolution"),
+        ({"geometry": {"palm": {"mesh_collider_thickness": 0}}}, "mesh_collider_thickness"),
+        ({"geometry": {"palm": {"mesh_collider_margin_ratio": 0.5}}}, "mesh_collider_margin_ratio"),
+        ({"geometry": {"palm": {"max_num_mesh_colliders": 0}}}, "max_num_mesh_colliders"),
+        (
+            {
+                "geometry": {
+                    "palm": {
+                        "mode": "tiled_mesh_colliders",
+                        "mesh_collider_resolution": 4,
+                        "max_num_mesh_colliders": 15,
+                    }
+                }
+            },
+            "mesh_collider_resolution",
+        ),
+        (
+            {
+                "geometry": {
+                    "palm": {
+                        "mode": "tiled_mesh_colliders",
+                        "mesh_collider_resolution": 4,
+                        "mesh_collider_type": "triangular_prism",
+                        "max_num_mesh_colliders": 31,
+                    }
+                }
+            },
+            "mesh_collider_resolution",
+        ),
         (
             {
                 "geometry": {
@@ -153,6 +222,13 @@ def test_geometry_config_invalid_numeric_values_raise_value_error(payload, field
 def test_geometry_config_unknown_key_inside_section_raises_value_error():
     with pytest.raises(ValueError, match="geometry.palm.padd_resolution=3"):
         GeometryConfig.from_dict({"geometry": {"palm": {"padd_resolution": 3}}})
+
+
+def test_geometry_config_unknown_mesh_collider_type_raises_value_error():
+    with pytest.raises(ValueError, match="mesh_collider_type='vhacd'"):
+        GeometryConfig.from_dict(
+            {"geometry": {"palm": {"mesh_collider_type": "vhacd"}}}
+        )
 
 
 def test_default_geometry_config_preserves_mjcf_xml_exactly():

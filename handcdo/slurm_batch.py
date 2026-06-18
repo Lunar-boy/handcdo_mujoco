@@ -36,6 +36,7 @@ def evaluate_task(
     config_path: str | Path,
     tools: list[str],
     seed: int = 0,
+    backend: str = "mujoco_cpu",
 ) -> list[dict[str, Any]]:
     setup_logging()
     design_dir = Path(design_dir)
@@ -62,6 +63,7 @@ def evaluate_task(
                 seed=seed + task_id * 10000 + offset,
                 config=eval_config,
                 geometry_config=geometry_config,
+                backend_name=backend,
                 sampler=sampler,
             )
         except Exception as exc:
@@ -98,7 +100,17 @@ def main_evaluate_batch() -> None:
     parser.add_argument("--results-dir", default="outputs/results")
     parser.add_argument("--config", default="configs/default_eval.yaml")
     parser.add_argument("--tools", default="hammer,spoon,knife")
+    parser.add_argument("--backend", default="mujoco_cpu", choices=["mujoco", "mujoco_cpu"])
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
     tools = [t.strip() for t in args.tools.split(",") if t.strip()]
-    evaluate_task(args.task_id, args.designs_per_task, args.design_dir, args.results_dir, args.config, tools, args.seed)
+    evaluate_task(
+        args.task_id,
+        args.designs_per_task,
+        args.design_dir,
+        args.results_dir,
+        args.config,
+        tools,
+        args.seed,
+        args.backend,
+    )
