@@ -7,6 +7,7 @@ from typing import Any, TypeVar
 @dataclass(frozen=True)
 class FingerContactConfig:
     mode: str = "capsule"
+    fingertip_body_shape: str = "capsule"
     fingertip_pad_enabled: bool = False
     fingertip_pad_shape: str = "box"
     fingertip_pad_thickness: float = 0.004
@@ -177,6 +178,11 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
             f"{section_name}.mode",
             config.mode,
             {"capsule", "capsule_tip_pad", "local_convex_patches"},
+        )
+        _validate_choice(
+            f"{section_name}.fingertip_body_shape",
+            config.fingertip_body_shape,
+            {"capsule", "ellipsoid"},
         )
         _validate_choice(
             f"{section_name}.fingertip_pad_shape",

@@ -14,12 +14,21 @@ class JointSpec:
 
 
 @dataclass(frozen=True)
+class FingertipGeometry:
+    half_x: float
+    half_y: float
+    half_z: float
+    shaft_length: float
+
+
+@dataclass(frozen=True)
 class LinkSpec:
     name: str
     length: float
     radius: float
     joint: JointSpec
     fingertip: bool = False
+    fingertip_geometry: FingertipGeometry | None = None
 
 
 @dataclass(frozen=True)
@@ -73,8 +82,16 @@ def build_hand_model(design: HandDesign) -> HandModel:
         for j in range(link_count):
             fingertip = j == link_count - 1
             radius = 0.009
+            fingertip_geometry = None
             if fingertip:
                 radius *= 0.5 * (p["fingertip_scale_y"] + p["fingertip_scale_z"])
+                half_x = min(0.010, max(0.004, 0.25 * lengths[min(j, 3)]))
+                fingertip_geometry = FingertipGeometry(
+                    half_x=half_x,
+                    half_y=0.009 * p["fingertip_scale_y"],
+                    half_z=0.009 * p["fingertip_scale_z"],
+                    shaft_length=max(0.0, lengths[min(j, 3)] - 2.0 * half_x),
+                )
             links.append(
                 LinkSpec(
                     name=f"finger{idx}_link{j + 1}",
@@ -86,6 +103,7 @@ def build_hand_model(design: HandDesign) -> HandModel:
                         range=(-0.25, 1.35 if j else 1.1),
                     ),
                     fingertip=fingertip,
+                    fingertip_geometry=fingertip_geometry,
                 )
             )
         fingers.append(
@@ -101,13 +119,25 @@ def build_hand_model(design: HandDesign) -> HandModel:
     thumb_link_count = 3 if p["thumb_code"] == "1-22" else 4
     for j in range(thumb_link_count):
         axis = (0.0, 1.0, 0.0) if j else (0.0, 0.0, 1.0)
+        fingertip = j == thumb_link_count - 1
+        thumb_link_length = max(0.018, lengths[min(j, 3)] * 0.9)
+        fingertip_geometry = None
+        if fingertip:
+            half_x = min(0.010, max(0.004, 0.25 * thumb_link_length))
+            fingertip_geometry = FingertipGeometry(
+                half_x=half_x,
+                half_y=0.0105 * p["fingertip_scale_y"],
+                half_z=0.0105 * p["fingertip_scale_z"],
+                shaft_length=max(0.0, thumb_link_length - 2.0 * half_x),
+            )
         thumb_links.append(
             LinkSpec(
                 name=f"thumb_link{j + 1}",
-                length=max(0.018, lengths[min(j, 3)] * 0.9),
-                radius=0.010 if j < thumb_link_count - 1 else 0.0105 * p["fingertip_scale_y"],
+                length=thumb_link_length,
+                radius=0.010 if not fingertip else 0.0105 * p["fingertip_scale_y"],
                 joint=JointSpec(name=f"thumb_joint{j + 1}", axis=axis, range=(-0.7, 1.2)),
-                fingertip=j == thumb_link_count - 1,
+                fingertip=fingertip,
+                fingertip_geometry=fingertip_geometry,
             )
         )
     fingers.append(
