@@ -35,7 +35,43 @@ python3 scripts/reevaluate_designs.py \
   --seed 40
 ```
 
-For an ablation, evaluate the same design IDs and seeds with `box_pads`, `pad_grid`, and `convex_patches`, then compare success counts, runtime, rank correlation, top-k overlap, and selected best designs. Scores from different geometry modes should be labeled and should not be treated as directly interchangeable.
+## Tiled palm mesh colliders
+
+The optional `palm.mode: tiled_mesh_colliders` geometry uses the same `compute_palm_height_field` implementation as the palm surface mesh exporter. It divides that regular height field into local cells and emits one closed quad-frustum mesh per cell, or two closed triangular-prism meshes per cell. Each mesh is registered as an inline MuJoCo asset and attached to the palm as a colliding mesh geom.
+
+```yaml
+geometry:
+  palm:
+    mode: tiled_mesh_colliders
+    pad_friction: [1.4, 0.02, 0.002]
+    mesh_collider_resolution: 6
+    mesh_collider_type: quad_frustum
+    mesh_collider_thickness: 0.003
+    mesh_collider_margin_ratio: 0.0
+    max_num_mesh_colliders: 36
+```
+
+`mesh_collider_resolution` is the number of cells along each palm axis. Quad frustums produce `resolution^2` colliders; triangular prisms produce `2 * resolution^2`. `max_num_mesh_colliders` is a hard validation limit. `mesh_collider_margin_ratio` symmetrically reduces the sampled palm footprint, and `mesh_collider_thickness` sets the depth below the undeformed palm top plane.
+
+Use `configs/eval_palm_tiled_mesh_colliders.yaml` for a complete high-fidelity evaluation configuration. The mode is opt-in and does not change `box_pads`, `pad_grid`, `convex_patches`, or any default configuration.
+
+This mode approximates the paper's surface pad mesh plus small-collider decomposition more closely than axis-aligned `convex_patches`, because each local top face follows sampled height-field vertices. It is still deterministic height-field tiling, not VHACD or general arbitrary-mesh convex decomposition. It supports only the palm top surface and does not add runtime deformation, finger or fingertip mesh deformation, tool decomposition, URDF export, or ROS integration. Numerical equivalence to the paper is not implied.
+
+Export the tiles for inspection:
+
+```bash
+python3 scripts/export_palm_mesh_colliders.py \
+  --design-dir outputs/designs \
+  --design-ids outputs/high/design_ids.txt \
+  --output-dir outputs/palm_mesh_colliders \
+  --resolution 6 \
+  --collider-type quad_frustum \
+  --format stl
+```
+
+Each design directory contains one file per collider plus `palm_mesh_collider_metadata.json`. Setting `mesh_collider_export: true` and `mesh_collider_export_dir` in a palm config also writes design-scoped STL files while generating MJCF; the standalone script is preferable for bulk inspection.
+
+For an ablation, evaluate the same design IDs and seeds with `box_pads`, `pad_grid`, `convex_patches`, and `tiled_mesh_colliders`. Compare runtime, failure rate, score correlation, top-k overlap, ranking drift, and selected best designs. Scores from different geometry modes should be labeled and should not be treated as directly interchangeable.
 
 ## Palm surface mesh export
 

@@ -24,6 +24,13 @@ class PalmContactConfig:
     convex_patch_base_thickness: float = 0.0025
     convex_patch_min_height: float = 0.0005
     convex_patch_margin_ratio: float = 0.15
+    mesh_collider_resolution: int = 6
+    mesh_collider_type: str = "quad_frustum"
+    mesh_collider_thickness: float = 0.003
+    mesh_collider_margin_ratio: float = 0.0
+    max_num_mesh_colliders: int = 64
+    mesh_collider_export: bool = False
+    mesh_collider_export_dir: str | None = None
 
 
 @dataclass(frozen=True)
@@ -103,12 +110,22 @@ def _parse_section(data: Any, cls: type[ConfigT], section_name: str) -> ConfigT:
         values["convex_patch_resolution"] = _int_value(
             values["convex_patch_resolution"], f"{section_name}.convex_patch_resolution"
         )
+    if "mesh_collider_resolution" in values:
+        values["mesh_collider_resolution"] = _int_value(
+            values["mesh_collider_resolution"], f"{section_name}.mesh_collider_resolution"
+        )
     if "max_num_pad_geoms" in values:
         values["max_num_pad_geoms"] = _int_value(values["max_num_pad_geoms"], f"{section_name}.max_num_pad_geoms")
+    if "max_num_mesh_colliders" in values:
+        values["max_num_mesh_colliders"] = _int_value(
+            values["max_num_mesh_colliders"], f"{section_name}.max_num_mesh_colliders"
+        )
     for field_name in (
         "convex_patch_base_thickness",
         "convex_patch_min_height",
         "convex_patch_margin_ratio",
+        "mesh_collider_thickness",
+        "mesh_collider_margin_ratio",
     ):
         if field_name in values:
             values[field_name] = _float_value(values[field_name], f"{section_name}.{field_name}")
@@ -171,7 +188,11 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
                 f"{section_name}.fingertip_pad_thickness={config.fingertip_pad_thickness!r} must be > 0"
             )
     elif isinstance(config, PalmContactConfig):
-        _validate_choice(f"{section_name}.mode", config.mode, {"box_pads", "pad_grid", "convex_patches"})
+        _validate_choice(
+            f"{section_name}.mode",
+            config.mode,
+            {"box_pads", "pad_grid", "convex_patches", "tiled_mesh_colliders"},
+        )
         if config.pad_resolution < 1:
             raise ValueError(f"{section_name}.pad_resolution={config.pad_resolution!r} must be >= 1")
         if config.max_num_pad_geoms < 1:
@@ -206,6 +227,48 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
         if config.convex_patch_max_height is not None and config.convex_patch_max_height <= 0:
             raise ValueError(
                 f"{section_name}.convex_patch_max_height={config.convex_patch_max_height!r} must be > 0"
+            )
+        _validate_choice(
+            f"{section_name}.mesh_collider_type",
+            config.mesh_collider_type,
+            {"quad_frustum", "triangular_prism"},
+        )
+        if config.mesh_collider_resolution < 2:
+            raise ValueError(
+                f"{section_name}.mesh_collider_resolution="
+                f"{config.mesh_collider_resolution!r} must be >= 2"
+            )
+        if config.mesh_collider_thickness <= 0:
+            raise ValueError(
+                f"{section_name}.mesh_collider_thickness="
+                f"{config.mesh_collider_thickness!r} must be > 0"
+            )
+        if not 0 <= config.mesh_collider_margin_ratio < 0.5:
+            raise ValueError(
+                f"{section_name}.mesh_collider_margin_ratio="
+                f"{config.mesh_collider_margin_ratio!r} must be >= 0 and < 0.5"
+            )
+        if config.max_num_mesh_colliders <= 0:
+            raise ValueError(
+                f"{section_name}.max_num_mesh_colliders="
+                f"{config.max_num_mesh_colliders!r} must be > 0"
+            )
+        collider_count = config.mesh_collider_resolution**2
+        if config.mesh_collider_type == "triangular_prism":
+            collider_count *= 2
+        if config.mode == "tiled_mesh_colliders" and collider_count > config.max_num_mesh_colliders:
+            multiplier = "2 * " if config.mesh_collider_type == "triangular_prism" else ""
+            raise ValueError(
+                "palm tiled_mesh_colliders requires "
+                f"{multiplier}mesh_collider_resolution^2 <= max_num_mesh_colliders; "
+                f"got mesh_collider_type={config.mesh_collider_type!r}, "
+                f"mesh_collider_resolution={config.mesh_collider_resolution!r}, "
+                f"max_num_mesh_colliders={config.max_num_mesh_colliders!r}"
+            )
+        if not isinstance(config.mesh_collider_export, bool):
+            raise ValueError(
+                f"{section_name}.mesh_collider_export="
+                f"{config.mesh_collider_export!r} must be a boolean"
             )
     elif isinstance(config, ToolContactConfig):
         _validate_choice(f"{section_name}.mode", config.mode, {"primitive", "hybrid", "convex_mesh"})

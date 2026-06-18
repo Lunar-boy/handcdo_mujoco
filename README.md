@@ -214,6 +214,8 @@ Final conclusions should be based on high-fidelity scores whenever available. Th
 
 An additional explicit convex-patch configuration is available for palm-contact ablations or selected-design re-evaluation. It maps the existing palm kernel parameters to a bounded deterministic grid of height-varying MuJoCo box patches. Use `configs/eval_palm_convex_patches.yaml` for a complete high-fidelity evaluation configuration; `configs/geometry_palm_convex_patches.yaml` is geometry-only. This is a CPU-only contact approximation, not deformable mesh or soft-body simulation, and it does not replace the default high-fidelity configuration. See [docs/geometry_config.md](docs/geometry_config.md).
 
+The optional `palm.mode: tiled_mesh_colliders` mode uses the same Gaussian palm height field as the surface mesh exporter, then splits it into deterministic closed local mesh colliders. Quad-frustum and triangular-prism tiles are supported, with a configurable hard collider-count limit. This is closer to the paper's surface-pad mesh plus small-collider idea than the box-based modes, but it remains a static CPU-only MuJoCo approximation rather than VHACD, arbitrary mesh decomposition, or deformable simulation. Use `configs/eval_palm_tiled_mesh_colliders.yaml` for selected-design evaluation; existing defaults are unchanged.
+
 ### Palm surface mesh export
 
 Export a selected design's Gaussian-deformed palm top surface as a static visual OBJ/STL mesh:
@@ -227,6 +229,17 @@ python3 scripts/export_palm_surface_mesh.py \
 ```
 
 The exporter uses the existing `palm_kernel_*` design parameters and does not alter evaluation or MuJoCo collision geometry. It is not runtime deformable simulation or fabrication-ready full-hand generation. Batch usage and geometry details are documented in [docs/geometry_config.md](docs/geometry_config.md).
+
+Export the corresponding local collision tiles without running evaluation:
+
+```bash
+python3 scripts/export_palm_mesh_colliders.py \
+  --design-json outputs/designs/<design_id>/design.json \
+  --output-dir outputs/designs/<design_id>/meshes/collision \
+  --resolution 6 \
+  --collider-type quad_frustum \
+  --format stl
+```
 
 ### 1. Generate candidate designs
 
