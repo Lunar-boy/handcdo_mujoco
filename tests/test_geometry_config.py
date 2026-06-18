@@ -76,6 +76,31 @@ def test_geometry_config_converts_friction_lists_to_tuples():
     assert config.tool.friction == (7.0, 8.0, 9.0)
 
 
+def test_geometry_config_parses_palm_convex_patch_fields():
+    config = GeometryConfig.from_dict(
+        {
+            "geometry": {
+                "palm": {
+                    "mode": "convex_patches",
+                    "max_num_pad_geoms": 16,
+                    "convex_patch_resolution": 4,
+                    "convex_patch_max_height": 0.02,
+                    "convex_patch_base_thickness": 0.003,
+                    "convex_patch_min_height": 0.001,
+                    "convex_patch_margin_ratio": 0.2,
+                }
+            }
+        }
+    )
+
+    assert config.palm.mode == "convex_patches"
+    assert config.palm.convex_patch_resolution == 4
+    assert config.palm.convex_patch_max_height == 0.02
+    assert config.palm.convex_patch_base_thickness == 0.003
+    assert config.palm.convex_patch_min_height == 0.001
+    assert config.palm.convex_patch_margin_ratio == 0.2
+
+
 def test_geometry_config_invalid_mode_raises_value_error():
     with pytest.raises(ValueError, match="geometry.finger.mode='spheres'"):
         GeometryConfig.from_dict({"geometry": {"finger": {"mode": "spheres"}}})
@@ -92,6 +117,23 @@ def test_geometry_config_invalid_fingertip_pad_shape_raises_value_error():
         ({"geometry": {"finger": {"fingertip_pad_thickness": 0}}}, "fingertip_pad_thickness"),
         ({"geometry": {"palm": {"pad_resolution": 0}}}, "pad_resolution"),
         ({"geometry": {"palm": {"max_num_pad_geoms": 0}}}, "max_num_pad_geoms"),
+        ({"geometry": {"palm": {"convex_patch_resolution": 1}}}, "convex_patch_resolution"),
+        ({"geometry": {"palm": {"convex_patch_base_thickness": 0}}}, "convex_patch_base_thickness"),
+        ({"geometry": {"palm": {"convex_patch_min_height": -0.001}}}, "convex_patch_min_height"),
+        ({"geometry": {"palm": {"convex_patch_margin_ratio": 0.5}}}, "convex_patch_margin_ratio"),
+        ({"geometry": {"palm": {"convex_patch_max_height": 0}}}, "convex_patch_max_height"),
+        (
+            {
+                "geometry": {
+                    "palm": {
+                        "mode": "convex_patches",
+                        "convex_patch_resolution": 9,
+                        "max_num_pad_geoms": 64,
+                    }
+                }
+            },
+            "convex_patch_resolution",
+        ),
         ({"geometry": {"tool": {"collision_margin": -0.001}}}, "collision_margin"),
     ],
 )

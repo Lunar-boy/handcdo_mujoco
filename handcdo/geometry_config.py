@@ -19,6 +19,11 @@ class PalmContactConfig:
     pad_resolution: int = 2
     pad_friction: tuple[float, float, float] = (1.4, 0.02, 0.002)
     max_num_pad_geoms: int = 16
+    convex_patch_resolution: int = 6
+    convex_patch_max_height: float | None = None
+    convex_patch_base_thickness: float = 0.0025
+    convex_patch_min_height: float = 0.0005
+    convex_patch_margin_ratio: float = 0.15
 
 
 @dataclass(frozen=True)
@@ -94,8 +99,23 @@ def _parse_section(data: Any, cls: type[ConfigT], section_name: str) -> ConfigT:
         )
     if "pad_resolution" in values:
         values["pad_resolution"] = _int_value(values["pad_resolution"], f"{section_name}.pad_resolution")
+    if "convex_patch_resolution" in values:
+        values["convex_patch_resolution"] = _int_value(
+            values["convex_patch_resolution"], f"{section_name}.convex_patch_resolution"
+        )
     if "max_num_pad_geoms" in values:
         values["max_num_pad_geoms"] = _int_value(values["max_num_pad_geoms"], f"{section_name}.max_num_pad_geoms")
+    for field_name in (
+        "convex_patch_base_thickness",
+        "convex_patch_min_height",
+        "convex_patch_margin_ratio",
+    ):
+        if field_name in values:
+            values[field_name] = _float_value(values[field_name], f"{section_name}.{field_name}")
+    if "convex_patch_max_height" in values and values["convex_patch_max_height"] is not None:
+        values["convex_patch_max_height"] = _float_value(
+            values["convex_patch_max_height"], f"{section_name}.convex_patch_max_height"
+        )
     if "collision_margin" in values:
         values["collision_margin"] = _float_value(values["collision_margin"], f"{section_name}.collision_margin")
 
@@ -156,6 +176,37 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
             raise ValueError(f"{section_name}.pad_resolution={config.pad_resolution!r} must be >= 1")
         if config.max_num_pad_geoms < 1:
             raise ValueError(f"{section_name}.max_num_pad_geoms={config.max_num_pad_geoms!r} must be >= 1")
+        if config.convex_patch_resolution < 2:
+            raise ValueError(
+                f"{section_name}.convex_patch_resolution={config.convex_patch_resolution!r} must be >= 2"
+            )
+        if (
+            config.mode == "convex_patches"
+            and config.convex_patch_resolution * config.convex_patch_resolution > config.max_num_pad_geoms
+        ):
+            raise ValueError(
+                "palm convex_patches requires convex_patch_resolution^2 <= max_num_pad_geoms; "
+                f"got convex_patch_resolution={config.convex_patch_resolution!r}, "
+                f"max_num_pad_geoms={config.max_num_pad_geoms!r}"
+            )
+        if config.convex_patch_base_thickness <= 0:
+            raise ValueError(
+                f"{section_name}.convex_patch_base_thickness="
+                f"{config.convex_patch_base_thickness!r} must be > 0"
+            )
+        if config.convex_patch_min_height < 0:
+            raise ValueError(
+                f"{section_name}.convex_patch_min_height={config.convex_patch_min_height!r} must be >= 0"
+            )
+        if not 0 <= config.convex_patch_margin_ratio < 0.5:
+            raise ValueError(
+                f"{section_name}.convex_patch_margin_ratio="
+                f"{config.convex_patch_margin_ratio!r} must be >= 0 and < 0.5"
+            )
+        if config.convex_patch_max_height is not None and config.convex_patch_max_height <= 0:
+            raise ValueError(
+                f"{section_name}.convex_patch_max_height={config.convex_patch_max_height!r} must be > 0"
+            )
     elif isinstance(config, ToolContactConfig):
         _validate_choice(f"{section_name}.mode", config.mode, {"primitive", "hybrid", "convex_mesh"})
         if config.collision_margin < 0:

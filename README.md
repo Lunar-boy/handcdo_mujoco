@@ -212,6 +212,8 @@ The three fidelity levels are:
 
 Final conclusions should be based on high-fidelity scores whenever available. The merged CSV keeps separate score columns for each fidelity level so ranking drift between fast, medium, and high evaluation remains visible.
 
+An additional explicit `configs/geometry_palm_convex_patches.yaml` configuration is available for palm-contact ablations or selected-design re-evaluation. It maps the existing palm kernel parameters to a bounded deterministic grid of height-varying MuJoCo box patches. This is a CPU-only contact approximation, not deformable mesh or soft-body simulation, and it does not replace the default high-fidelity configuration. See [docs/geometry_config.md](docs/geometry_config.md).
+
 ### 1. Generate candidate designs
 
 ```bash
@@ -397,4 +399,4 @@ handcdo_mujoco/
 - No GPU-only libraries.
 - No real robot control, fabrication, OptiTrack, or physical validation.
 - Hybrid tool geometry supports optional visual/collision meshes while preserving primitive fallback and the default primitive path.
-- Palm kernels are approximated as configurable local contact pads, with a clean interface for replacing them with real mesh deformation later.
+- Palm kernels are approximated as configurable local contact pads or optional deterministic convex-patch fields; neither mode is real mesh deformation.
