@@ -35,9 +35,7 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
     if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
-    if geometry_config.palm.mode == "convex_patches":
-        raise NotImplementedError(f"palm contact mode {geometry_config.palm.mode!r} is not implemented yet")
-    if geometry_config.palm.mode not in {"box_pads", "pad_grid"}:
+    if geometry_config.palm.mode not in {"box_pads", "pad_grid", "convex_patches"}:
         raise ValueError(f"Unknown palm contact mode {geometry_config.palm.mode!r}")
     if geometry_config.tool.mode == "convex_mesh":
         raise NotImplementedError(f"tool contact mode {geometry_config.tool.mode!r} is not implemented yet")
@@ -163,6 +161,70 @@ def _add_palm_pad_grid(parent: ET.Element, hand: HandModel, palm_config: PalmCon
             )
 
 
+def _add_palm_convex_patches(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig) -> None:
+    resolution = palm_config.convex_patch_resolution
+    if resolution < 2 or resolution * resolution > palm_config.max_num_pad_geoms:
+        raise ValueError(
+            "palm convex_patches requires convex_patch_resolution >= 2 and "
+            "convex_patch_resolution^2 <= max_num_pad_geoms; "
+            f"got convex_patch_resolution={resolution!r}, "
+            f"max_num_pad_geoms={palm_config.max_num_pad_geoms!r}"
+        )
+
+    palm_half_x, palm_half_y, palm_half_z = hand.palm_size
+    usable_half_x = palm_half_x * (1.0 - palm_config.convex_patch_margin_ratio)
+    usable_half_y = palm_half_y * (1.0 - palm_config.convex_patch_margin_ratio)
+    cell_half_x = usable_half_x / resolution
+    cell_half_y = usable_half_y / resolution
+    patch_half_x = 0.85 * cell_half_x
+    patch_half_y = 0.85 * cell_half_y
+    params = hand.design.params
+    design_max_height = float(params["palm_kernel_max_height"])
+    max_height = design_max_height
+    if palm_config.convex_patch_max_height is not None:
+        max_height = min(design_max_height, palm_config.convex_patch_max_height)
+    eps = 1e-6
+    kernels = []
+    for index in (1, 2):
+        angle = float(params[f"palm_kernel_center_angle_{index}"])
+        radius = 0.035 + float(params[f"palm_kernel_center_offset_{index}"])
+        kernels.append(
+            (
+                radius * math.cos(angle),
+                radius * math.sin(angle),
+                max(eps, float(params[f"palm_kernel_spread_{index}"])),
+                float(params[f"palm_kernel_intensity_ratio_{index}"]),
+            )
+        )
+
+    for row in range(resolution):
+        for col in range(resolution):
+            x = -usable_half_x + (2 * col + 1) * cell_half_x
+            y = -usable_half_y + (2 * row + 1) * cell_half_y
+            local_height = 0.0
+            for center_x, center_y, spread, intensity in kernels:
+                distance_sq = (x - center_x) ** 2 + (y - center_y) ** 2
+                local_height += intensity * max_height * math.exp(-distance_sq / (2.0 * spread**2))
+            if max_height <= 0:
+                local_height = 0.0
+            else:
+                local_height = min(max_height, max(palm_config.convex_patch_min_height, local_height))
+
+            patch_half_z = palm_config.convex_patch_base_thickness + 0.5 * local_height
+            ET.SubElement(
+                parent,
+                "geom",
+                name=f"palm_convex_patch_r{row}_c{col}",
+                type="box",
+                pos=_vec((x, y, palm_half_z + patch_half_z)),
+                size=_vec((patch_half_x, patch_half_y, patch_half_z)),
+                density="500",
+                friction=_vec(palm_config.pad_friction),
+                contype="1",
+                conaffinity="1",
+            )
+
+
 def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContactConfig | None = None) -> None:
     palm_config = palm_config or PalmContactConfig()
     ET.SubElement(parent, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
@@ -171,7 +233,7 @@ def _add_palm_geoms(parent: ET.Element, hand: HandModel, palm_config: PalmContac
     elif palm_config.mode == "pad_grid":
         _add_palm_pad_grid(parent, hand, palm_config)
     elif palm_config.mode == "convex_patches":
-        raise NotImplementedError("palm contact mode 'convex_patches' is not implemented yet")
+        _add_palm_convex_patches(parent, hand, palm_config)
     else:
         raise ValueError(f"Unknown palm contact mode {palm_config.mode!r}")
 

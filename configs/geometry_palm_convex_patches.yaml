@@ -1,0 +1,20 @@
+geometry:
+  finger:
+    mode: capsule_tip_pad
+    fingertip_pad_enabled: true
+    fingertip_pad_shape: box
+    fingertip_pad_thickness: 0.004
+    fingertip_pad_friction: [1.4, 0.03, 0.003]
+
+  palm:
+    mode: convex_patches
+    pad_friction: [1.4, 0.02, 0.002]
+    max_num_pad_geoms: 64
+    convex_patch_resolution: 8
+    convex_patch_base_thickness: 0.0025
+    convex_patch_min_height: 0.0005
+    convex_patch_margin_ratio: 0.15
+
+  tool:
+    mode: hybrid
+    collision_margin: 0.001
