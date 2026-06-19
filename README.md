@@ -208,9 +208,12 @@ The three fidelity levels are:
 
 - **Fast**: low simulation budget, primitive geometry, and a small grasp-search budget. Use this for broad screening.
 - **Medium**: higher simulation budget, fingertip pads, palm pad grid, and medium grasp-search budget. Use this for re-ranking.
-- **High**: highest simulation budget, fingertip pads, denser palm pad grid, and optional hybrid tool geometry. Use this for final ranking.
+- **Stable high**: `configs/eval_high.yaml` uses the highest standard simulation budget, fingertip pads, a denser palm pad grid, and optional hybrid tool geometry. Use this for final ranking that must remain comparable with existing high-fidelity runs.
+- **Paper-like**: `configs/eval_paper_like.yaml` keeps the stable-high simulation and grasp budgets while enabling ellipsoid fingertips with local convex patch colliders, outline-aware palm tiled mesh colliders, and hybrid tool geometry with primitive fallback. This is the closest currently available geometry approximation to the paper, not a numerically equivalent reproduction.
 
 Final conclusions should be based on high-fidelity scores whenever available. The merged CSV keeps separate score columns for each fidelity level so ranking drift between fast, medium, and high evaluation remains visible.
+
+The paper-like config changes contact geometry. Its scores are not directly comparable with `eval_high.yaml`, older `pad_grid` runs, or `capsule_tip_pad` evaluations. Keep the config name with reported results and re-evaluate the same design IDs and seeds when comparing geometry tiers.
 
 An additional explicit convex-patch configuration is available for palm-contact ablations or selected-design re-evaluation. It maps the existing palm kernel parameters to a bounded deterministic grid of height-varying MuJoCo box patches. Use `configs/eval_palm_convex_patches.yaml` for a complete high-fidelity evaluation configuration; `configs/geometry_palm_convex_patches.yaml` is geometry-only. This is a CPU-only contact approximation, not deformable mesh or soft-body simulation, and it does not replace the default high-fidelity configuration. See [docs/geometry_config.md](docs/geometry_config.md).
 
