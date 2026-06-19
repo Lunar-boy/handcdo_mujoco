@@ -73,7 +73,10 @@ def test_tip_pads_are_added_only_to_fingertip_links_with_expected_attributes():
 
     for geom in pad_geoms:
         link = fingertip_links[geom.attrib["name"].removesuffix("_tip_pad")]
-        contact_half_x, contact_half_y, contact_half_z = _fingertip_contact_half_extents(link)
+        contact_half_x, contact_half_y, contact_half_z = _fingertip_contact_half_extents(
+            link,
+            finger_config,
+        )
         pad_half_x = min(0.008, max(0.003, 0.55 * contact_half_x))
         pad_half_y = max(0.003, 0.75 * contact_half_y)
         pad_half_z = 0.5 * finger_config.fingertip_pad_thickness
@@ -143,7 +146,33 @@ def test_contact_half_extents_fall_back_to_capsule_dimensions():
         fingertip=True,
     )
 
-    assert _fingertip_contact_half_extents(link) == pytest.approx((0.0056, 0.007, 0.007))
+    assert _fingertip_contact_half_extents(
+        link,
+        FingerContactConfig(fingertip_body_shape="capsule"),
+    ) == pytest.approx((0.0056, 0.007, 0.007))
+
+
+def test_capsule_tip_pad_uses_capsule_radius_not_ellipsoid_half_extents():
+    hand = build_hand_model(_design_with_tip_scales(0.8, 1.4))
+    config = GeometryConfig(
+        finger=FingerContactConfig(
+            mode="capsule_tip_pad",
+            fingertip_body_shape="capsule",
+            fingertip_pad_enabled=True,
+            fingertip_pad_shape="box",
+        )
+    )
+    link = hand.digits[0].links[-1]
+    geometry = link.fingertip_geometry
+    assert geometry is not None
+    assert geometry.half_z != pytest.approx(link.radius)
+
+    pad = _tip_pad_for_first_digit(build_mjcf_xml(hand, geometry_config=config), hand)
+    pad_size = [float(value) for value in pad.attrib["size"].split()]
+    pad_pos_z = float(pad.attrib["pos"].split()[2])
+
+    assert pad_size[1] == pytest.approx(max(0.003, 0.75 * link.radius))
+    assert pad_pos_z == pytest.approx(-(link.radius + pad_size[2] * 0.5))
 
 
 def test_capsule_tip_pad_mode_without_enabled_flag_is_capsule_only():

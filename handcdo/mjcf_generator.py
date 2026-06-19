@@ -55,8 +55,14 @@ def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
         raise ValueError(f"Unknown tool contact mode {geometry_config.tool.mode!r}")
 
 
-def _fingertip_contact_half_extents(link: LinkSpec) -> tuple[float, float, float]:
-    if link.fingertip_geometry is not None:
+def _fingertip_contact_half_extents(
+    link: LinkSpec,
+    finger_config: FingerContactConfig,
+) -> tuple[float, float, float]:
+    if (
+        finger_config.fingertip_body_shape == "ellipsoid"
+        and link.fingertip_geometry is not None
+    ):
         geometry = link.fingertip_geometry
         return (geometry.half_x, geometry.half_y, geometry.half_z)
     return (
@@ -69,7 +75,10 @@ def _fingertip_contact_half_extents(link: LinkSpec) -> tuple[float, float, float
 def _add_fingertip_pad_geom(parent: ET.Element, link: LinkSpec, finger_config: FingerContactConfig) -> None:
     shape = finger_config.fingertip_pad_shape
     if shape == "box":
-        contact_half_x, contact_half_y, contact_half_z = _fingertip_contact_half_extents(link)
+        contact_half_x, contact_half_y, contact_half_z = _fingertip_contact_half_extents(
+            link,
+            finger_config,
+        )
         thickness = finger_config.fingertip_pad_thickness
         pad_half_x = min(0.008, max(0.003, 0.55 * contact_half_x))
         pad_half_y = max(0.003, 0.75 * contact_half_y)

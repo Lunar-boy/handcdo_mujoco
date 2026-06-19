@@ -113,15 +113,25 @@ def test_invalid_direct_fingertip_body_shape_is_rejected_during_mjcf_generation(
 
 
 def test_ellipsoid_fingertip_body_supports_box_pad():
-    hand = build_hand_model(DesignSpace().sample(seed=9))
+    hand = build_hand_model(_design_with_tip_scales(0.8, 1.4))
     config = GeometryConfig(
         finger=FingerContactConfig(
+            mode="capsule_tip_pad",
             fingertip_body_shape="ellipsoid",
             fingertip_pad_enabled=True,
+            fingertip_pad_shape="box",
         )
     )
 
     xml = build_mjcf_xml(hand, geometry_config=config)
+    link = hand.digits[0].links[-1]
+    geometry = link.fingertip_geometry
+    assert geometry is not None
+    pad = ET.fromstring(xml).find(f".//geom[@name='{link.name}_tip_pad']")
+    assert pad is not None
+    pad_size = [float(value) for value in pad.attrib["size"].split()]
+    pad_pos_z = float(pad.attrib["pos"].split()[2])
 
     assert "_tip_ellipsoid" in xml
-    assert "_tip_pad" in xml
+    assert pad_size[1] == pytest.approx(max(0.003, 0.75 * geometry.half_y))
+    assert pad_pos_z == pytest.approx(-(geometry.half_z + pad_size[2] * 0.5))
