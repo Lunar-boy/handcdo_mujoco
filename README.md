@@ -216,7 +216,7 @@ An additional explicit convex-patch configuration is available for palm-contact 
 
 The rigid palm body is a deterministic convex 2D outline extruded into a closed MuJoCo mesh. Finger and thumb bases are derived from named boundary frames, while fixed inward insets keep the default layout close to the previous box model. Gaussian palm parameters affect only the contact pads, patches, and surface colliders; they no longer resize the rigid palm body. This is an architectural approximation of the paper's parametric palm generator, not a fabrication-grade or numerically equivalent reproduction.
 
-The optional `palm.mode: tiled_mesh_colliders` mode uses the same Gaussian palm height field as the surface mesh exporter, then splits it into deterministic closed local mesh colliders. Quad-frustum and triangular-prism tiles are supported, with a configurable hard collider-count limit. This is closer to the paper's surface-pad mesh plus small-collider idea than the box-based modes, but it remains a static CPU-only MuJoCo approximation rather than VHACD, arbitrary mesh decomposition, or deformable simulation. Use `configs/eval_palm_tiled_mesh_colliders.yaml` for selected-design evaluation; existing contact-mode defaults are unchanged.
+The optional `palm.mode: tiled_mesh_colliders` mode evaluates the Gaussian palm surface on deterministic local mesh colliders. `mesh_collider_domain: outline` clips boundary tiles to the convex `PalmBodySpec` outline, while `bbox` preserves the legacy rectangular height-field behavior. This is closer to the paper's surface-pad mesh plus small-collider idea than the box-based modes, but it remains a static CPU-only MuJoCo approximation rather than VHACD, non-convex geometry processing, fabrication export, or deformable simulation. Use `configs/eval_palm_tiled_mesh_colliders.yaml` for selected-design evaluation; existing default contact modes are unchanged.
 
 ### Palm surface mesh export
 
@@ -240,6 +240,7 @@ python3 scripts/export_palm_mesh_colliders.py \
   --output-dir outputs/designs/<design_id>/meshes/collision \
   --resolution 6 \
   --collider-type quad_frustum \
+  --domain outline \
   --format stl
 ```
 

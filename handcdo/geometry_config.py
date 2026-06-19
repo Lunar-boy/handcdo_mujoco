@@ -36,6 +36,7 @@ class PalmContactConfig:
     convex_patch_margin_ratio: float = 0.15
     mesh_collider_resolution: int = 6
     mesh_collider_type: str = "quad_frustum"
+    mesh_collider_domain: str = "bbox"
     mesh_collider_thickness: float = 0.003
     mesh_collider_margin_ratio: float = 0.0
     max_num_mesh_colliders: int = 64
@@ -316,6 +317,11 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
             f"{section_name}.mesh_collider_type",
             config.mesh_collider_type,
             {"quad_frustum", "triangular_prism"},
+        )
+        _validate_choice(
+            f"{section_name}.mesh_collider_domain",
+            config.mesh_collider_domain,
+            {"bbox", "outline"},
         )
         if config.mesh_collider_resolution < 2:
             raise ValueError(

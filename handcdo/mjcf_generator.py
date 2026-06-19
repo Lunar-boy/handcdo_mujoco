@@ -410,6 +410,9 @@ def _add_palm_geoms(
         contype="1",
         conaffinity="1",
     )
+    # Compatibility keeps the structural palm mesh colliding even when tiled
+    # surface colliders are enabled. A future body-collision mode can make the
+    # structural mesh visual-only after contact behavior is benchmarked.
     if palm_config.mode == "box_pads":
         _add_palm_box_pads(parent, hand, palm_config)
     elif palm_config.mode == "pad_grid":

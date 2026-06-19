@@ -34,6 +34,12 @@ def main() -> None:
         choices=("quad_frustum", "triangular_prism"),
         default="quad_frustum",
     )
+    parser.add_argument(
+        "--domain",
+        choices=("bbox", "outline"),
+        default="bbox",
+        help="Use the legacy rectangular domain or clip tiles to the palm outline.",
+    )
     parser.add_argument("--thickness", type=float, default=0.003)
     parser.add_argument("--margin-ratio", type=float, default=0.0)
     parser.add_argument("--format", choices=("obj", "stl"), default="stl")
@@ -61,10 +67,13 @@ def main() -> None:
         parser.error("No design JSON files found")
 
     multiplier = 2 if args.collider_type == "triangular_prism" else 1
+    if args.domain == "outline" and args.collider_type == "triangular_prism":
+        multiplier = 8
     config = PalmContactConfig(
         mode="tiled_mesh_colliders",
         mesh_collider_resolution=args.resolution,
         mesh_collider_type=args.collider_type,
+        mesh_collider_domain=args.domain,
         mesh_collider_thickness=args.thickness,
         mesh_collider_margin_ratio=args.margin_ratio,
         max_num_mesh_colliders=multiplier * args.resolution**2,
@@ -95,6 +104,7 @@ def main() -> None:
                 "design_id": design.design_id,
                 "resolution": args.resolution,
                 "collider_type": args.collider_type,
+                "domain": args.domain,
                 "collider_count": len(colliders),
                 "thickness": args.thickness,
                 "margin_ratio": args.margin_ratio,
