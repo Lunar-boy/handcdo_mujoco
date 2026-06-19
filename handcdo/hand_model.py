@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from .design_space import HandDesign
+from .design_space import DEFAULT_PALM_OUTLINE_PARAMETERS, HandDesign
 from .palm_outline import PalmBodySpec, build_palm_outline_body
 
 
@@ -80,11 +80,21 @@ def build_hand_model(design: HandDesign) -> HandModel:
         thumb_side_offset=p["thumb_side_offset"],
         thumb_normal_offset=p["thumb_normal_offset"],
         thumb_angle=p["thumb_angle"],
-        half_x=0.085,
-        half_y=0.115,
-        half_z=0.032,
-        polygon_sides=8,
-        aspect_ratio=1.0,
+        half_x=p.get("palm_half_x", DEFAULT_PALM_OUTLINE_PARAMETERS["palm_half_x"]),
+        half_y=p.get("palm_half_y", DEFAULT_PALM_OUTLINE_PARAMETERS["palm_half_y"]),
+        half_z=p.get("palm_half_z", DEFAULT_PALM_OUTLINE_PARAMETERS["palm_half_z"]),
+        polygon_sides=int(
+            round(
+                p.get(
+                    "palm_polygon_sides",
+                    DEFAULT_PALM_OUTLINE_PARAMETERS["palm_polygon_sides"],
+                )
+            )
+        ),
+        aspect_ratio=p.get(
+            "palm_aspect_ratio",
+            DEFAULT_PALM_OUTLINE_PARAMETERS["palm_aspect_ratio"],
+        ),
     )
     palm_size = palm_body.half_extents
     base_lengths = [0.044, 0.034, 0.027, 0.022]

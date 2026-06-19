@@ -10,6 +10,15 @@ import numpy as np
 from .utils import read_yaml, stable_design_id, write_json
 
 
+DEFAULT_PALM_OUTLINE_PARAMETERS: dict[str, Any] = {
+    "palm_half_x": 0.085,
+    "palm_half_y": 0.115,
+    "palm_half_z": 0.032,
+    "palm_aspect_ratio": 1.0,
+    "palm_polygon_sides": 8,
+}
+
+
 @dataclass(frozen=True)
 class ParameterSpec:
     name: str
@@ -82,6 +91,11 @@ DEFAULT_SPECS: tuple[ParameterSpec, ...] = (
     ParameterSpec("added_link_length_2", "float", bounds=(-0.01, 0.035)),
     ParameterSpec("added_link_length_3", "float", bounds=(-0.01, 0.035)),
     ParameterSpec("added_link_length_4", "float", bounds=(-0.01, 0.035)),
+    ParameterSpec("palm_half_x", "float", bounds=(0.070, 0.105)),
+    ParameterSpec("palm_half_y", "float", bounds=(0.095, 0.135)),
+    ParameterSpec("palm_half_z", "float", bounds=(0.024, 0.042)),
+    ParameterSpec("palm_aspect_ratio", "float", bounds=(0.75, 1.30)),
+    ParameterSpec("palm_polygon_sides", "categorical", choices=(6, 8, 10, 12)),
 )
 
 
@@ -105,10 +119,14 @@ class DesignSpace:
         return HandDesign({spec.name: spec.sample(rng) for spec in self.specs}, space=self)
 
     def validate(self, params: dict[str, Any]) -> dict[str, Any]:
-        missing = [s.name for s in self.specs if s.name not in params]
+        normalized = dict(params)
+        for name, value in DEFAULT_PALM_OUTLINE_PARAMETERS.items():
+            if name in self.by_name:
+                normalized.setdefault(name, value)
+        missing = [s.name for s in self.specs if s.name not in normalized]
         if missing:
             raise ValueError(f"Missing design parameters: {missing}")
-        return {s.name: s.validate(params[s.name]) for s in self.specs}
+        return {s.name: s.validate(normalized[s.name]) for s in self.specs}
 
     def optuna_suggest(self, trial: Any) -> "HandDesign":
         values: dict[str, Any] = {}

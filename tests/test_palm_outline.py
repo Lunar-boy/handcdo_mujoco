@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from handcdo.design_space import DesignSpace, HandDesign
+from handcdo.design_space import DEFAULT_PALM_OUTLINE_PARAMETERS, DesignSpace, HandDesign
 from handcdo.geometry_config import GeometryConfig, PalmContactConfig
 from handcdo.hand_model import build_hand_model
 from handcdo.mjcf_generator import build_mjcf_xml
@@ -14,6 +14,7 @@ from handcdo.palm_outline import build_palm_outline_body
 
 def _design_with(**overrides: float) -> HandDesign:
     params = DesignSpace().sample(seed=401).to_dict()
+    params.update(DEFAULT_PALM_OUTLINE_PARAMETERS)
     params.update(overrides)
     return HandDesign(params)
 

@@ -85,6 +85,18 @@ python3 scripts/run_optuna_round.py \
 The outer objective maximizes the average best grasp stability score across hammer, spoon, and knife. The inner grasp optimizer uses Optuna TPE when available and falls back to random search if necessary.
 `mujoco` remains accepted as a legacy alias for the same CPU MuJoCo backend.
 
+## Palm outline design parameters
+
+The morphology search includes bounded rigid palm outline parameters:
+
+- `palm_half_x`: rigid palm body half extent in local X.
+- `palm_half_y`: base rigid palm body half extent in local Y.
+- `palm_half_z`: rigid palm body half thickness.
+- `palm_aspect_ratio`: multiplier applied to the local-Y outline extent.
+- `palm_polygon_sides`: convex outline vertex count, chosen from 6, 8, 10, or 12.
+
+Legacy design JSON files that omit these fields load with the previous fixed palm defaults `(0.085, 0.115, 0.032)`, aspect ratio `1.0`, and 8 sides. `palm_kernel_max_height` controls surface deformation only; it does not change the rigid palm body size.
+
 ## Baseline Benchmark
 
 Run this before changing contact geometry to freeze the current MuJoCo CPU baseline. Future geometry modes can be compared against this baseline with the comparison helper. The generated benchmark outputs under `outputs/` should not be committed.
