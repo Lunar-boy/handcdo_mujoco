@@ -39,7 +39,7 @@ python3 scripts/reevaluate_designs.py \
 
 ## Tiled palm mesh colliders
 
-The optional `palm.mode: tiled_mesh_colliders` geometry uses the same `compute_palm_height_field` implementation as the palm surface mesh exporter. It divides that regular height field into local cells and emits one closed quad-frustum mesh per cell, or two closed triangular-prism meshes per cell. Each mesh is registered as an inline MuJoCo asset and attached to the palm as a colliding mesh geom.
+The optional `palm.mode: tiled_mesh_colliders` geometry evaluates the same Gaussian kernels as the palm surface mesh exporter. It supports the legacy rectangular bounding-box domain and an outline-aware domain that clips each local cell to `PalmBodySpec.outline_vertices_2d`. Each mesh is registered as an inline MuJoCo asset and attached to the palm as a colliding mesh geom.
 
 ```yaml
 geometry:
@@ -48,16 +48,17 @@ geometry:
     pad_friction: [1.4, 0.02, 0.002]
     mesh_collider_resolution: 6
     mesh_collider_type: quad_frustum
+    mesh_collider_domain: outline
     mesh_collider_thickness: 0.003
     mesh_collider_margin_ratio: 0.0
     max_num_mesh_colliders: 36
 ```
 
-`mesh_collider_resolution` is the number of cells along each palm axis. Quad frustums produce `resolution^2` colliders; triangular prisms produce `2 * resolution^2`. `max_num_mesh_colliders` is a hard validation limit. `mesh_collider_margin_ratio` symmetrically reduces the sampled palm footprint, and `mesh_collider_thickness` sets the depth below the undeformed palm top plane.
+`mesh_collider_resolution` is the number of cells along each palm bounding-box axis. `mesh_collider_domain: bbox` preserves the legacy rectangular height-field footprint. `mesh_collider_domain: outline` clips cells to the convex palm outline, so boundary cells may be smaller polygons and no tile extends beyond the palm body. Quad-frustum mode emits one closed polygonal prism per surviving cell. Triangular-prism mode fan-triangulates each clipped polygon, so its collider count can exceed `2 * resolution^2` near clipped boundaries. `max_num_mesh_colliders` remains a hard limit on the generated count. `mesh_collider_margin_ratio` symmetrically reduces the sampled bounding box, and `mesh_collider_thickness` sets the depth below the undeformed palm top plane.
 
 Use `configs/eval_palm_tiled_mesh_colliders.yaml` for a complete high-fidelity evaluation configuration. The mode is opt-in and does not change `box_pads`, `pad_grid`, `convex_patches`, or any default configuration.
 
-This mode approximates the paper's surface pad mesh plus small-collider decomposition more closely than axis-aligned `convex_patches`, because each local top face follows sampled height-field vertices. It is still deterministic height-field tiling, not VHACD or general arbitrary-mesh convex decomposition. It supports only the palm top surface and does not add runtime deformation, finger or fingertip mesh deformation, tool decomposition, URDF export, or ROS integration. Numerical equivalence to the paper is not implied.
+This mode approximates the paper's surface pad mesh plus small-collider decomposition more closely than axis-aligned `convex_patches`, because each local top face follows sampled height-field vertices. Outline clipping assumes a convex outline and uses lightweight Sutherland-Hodgman clipping plus fan triangulation. It is not VHACD, non-convex clipping, fabrication-grade STL generation, or general arbitrary-mesh decomposition. It supports only the palm top surface and does not add runtime deformation, tool decomposition, URDF export, or ROS integration. Numerical equivalence to the paper is not implied.
 
 Export the tiles for inspection:
 
@@ -68,6 +69,7 @@ python3 scripts/export_palm_mesh_colliders.py \
   --output-dir outputs/palm_mesh_colliders \
   --resolution 6 \
   --collider-type quad_frustum \
+  --domain outline \
   --format stl
 ```
 

@@ -36,6 +36,7 @@ class PalmContactConfig:
     convex_patch_margin_ratio: float = 0.15
     mesh_collider_resolution: int = 6
     mesh_collider_type: str = "quad_frustum"
+    mesh_collider_domain: str = "bbox"
     mesh_collider_thickness: float = 0.003
     mesh_collider_margin_ratio: float = 0.0
     max_num_mesh_colliders: int = 64
@@ -317,6 +318,11 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
             config.mesh_collider_type,
             {"quad_frustum", "triangular_prism"},
         )
+        _validate_choice(
+            f"{section_name}.mesh_collider_domain",
+            config.mesh_collider_domain,
+            {"bbox", "outline"},
+        )
         if config.mesh_collider_resolution < 2:
             raise ValueError(
                 f"{section_name}.mesh_collider_resolution="
@@ -340,7 +346,11 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
         collider_count = config.mesh_collider_resolution**2
         if config.mesh_collider_type == "triangular_prism":
             collider_count *= 2
-        if config.mode == "tiled_mesh_colliders" and collider_count > config.max_num_mesh_colliders:
+        if (
+            config.mode == "tiled_mesh_colliders"
+            and config.mesh_collider_domain == "bbox"
+            and collider_count > config.max_num_mesh_colliders
+        ):
             multiplier = "2 * " if config.mesh_collider_type == "triangular_prism" else ""
             raise ValueError(
                 "palm tiled_mesh_colliders requires "

@@ -29,6 +29,7 @@ geometry:
     pad_friction: [1.4, 0.02, 0.002]
     mesh_collider_resolution: 6
     mesh_collider_type: quad_frustum
+    mesh_collider_domain: outline
     mesh_collider_thickness: 0.003
     mesh_collider_margin_ratio: 0.0
     max_num_mesh_colliders: 36

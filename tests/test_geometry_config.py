@@ -117,6 +117,7 @@ def test_geometry_config_parses_palm_tiled_mesh_collider_fields():
                     "mode": "tiled_mesh_colliders",
                     "mesh_collider_resolution": 4,
                     "mesh_collider_type": "triangular_prism",
+                    "mesh_collider_domain": "outline",
                     "mesh_collider_thickness": 0.004,
                     "mesh_collider_margin_ratio": 0.1,
                     "max_num_mesh_colliders": 32,
@@ -130,6 +131,7 @@ def test_geometry_config_parses_palm_tiled_mesh_collider_fields():
     assert config.palm.mode == "tiled_mesh_colliders"
     assert config.palm.mesh_collider_resolution == 4
     assert config.palm.mesh_collider_type == "triangular_prism"
+    assert config.palm.mesh_collider_domain == "outline"
     assert config.palm.mesh_collider_thickness == 0.004
     assert config.palm.mesh_collider_margin_ratio == 0.1
     assert config.palm.max_num_mesh_colliders == 32
@@ -147,6 +149,41 @@ def test_geometry_config_minimal_palm_tiled_mesh_colliders_uses_valid_defaults()
         config.palm.mesh_collider_resolution**2
         <= config.palm.max_num_mesh_colliders
     )
+
+
+def test_outline_triangular_prism_config_defers_count_limit_to_generation():
+    config = GeometryConfig.from_dict(
+        {
+            "geometry": {
+                "palm": {
+                    "mode": "tiled_mesh_colliders",
+                    "mesh_collider_domain": "outline",
+                    "mesh_collider_type": "triangular_prism",
+                    "mesh_collider_resolution": 4,
+                    "max_num_mesh_colliders": 1,
+                }
+            }
+        }
+    )
+
+    assert config.palm.max_num_mesh_colliders == 1
+
+
+def test_bbox_triangular_prism_config_keeps_precomputed_count_limit():
+    with pytest.raises(ValueError, match="mesh_collider_resolution"):
+        GeometryConfig.from_dict(
+            {
+                "geometry": {
+                    "palm": {
+                        "mode": "tiled_mesh_colliders",
+                        "mesh_collider_domain": "bbox",
+                        "mesh_collider_type": "triangular_prism",
+                        "mesh_collider_resolution": 4,
+                        "max_num_mesh_colliders": 31,
+                    }
+                }
+            }
+        )
 
 
 def test_geometry_config_invalid_mode_raises_value_error():
@@ -228,6 +265,13 @@ def test_geometry_config_unknown_mesh_collider_type_raises_value_error():
     with pytest.raises(ValueError, match="mesh_collider_type='vhacd'"):
         GeometryConfig.from_dict(
             {"geometry": {"palm": {"mesh_collider_type": "vhacd"}}}
+        )
+
+
+def test_geometry_config_unknown_mesh_collider_domain_raises_value_error():
+    with pytest.raises(ValueError, match="mesh_collider_domain='circle'"):
+        GeometryConfig.from_dict(
+            {"geometry": {"palm": {"mesh_collider_domain": "circle"}}}
         )
 
 
