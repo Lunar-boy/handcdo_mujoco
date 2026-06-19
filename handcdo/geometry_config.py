@@ -12,6 +12,15 @@ class FingerContactConfig:
     fingertip_pad_shape: str = "box"
     fingertip_pad_thickness: float = 0.004
     fingertip_pad_friction: tuple[float, float, float] = (1.4, 0.03, 0.003)
+    local_patch_resolution: int = 4
+    local_patch_collider_type: str = "quad_frustum"
+    local_patch_thickness: float = 0.0025
+    local_patch_margin_ratio: float = 0.05
+    local_patch_max_height: float | None = None
+    local_patch_min_height: float = 0.0004
+    max_num_local_patch_colliders: int = 96
+    local_patch_export: bool = False
+    local_patch_export_dir: str | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +114,15 @@ def _parse_section(data: Any, cls: type[ConfigT], section_name: str) -> ConfigT:
         values["fingertip_pad_thickness"] = _float_value(
             values["fingertip_pad_thickness"], f"{section_name}.fingertip_pad_thickness"
         )
+    if "local_patch_resolution" in values:
+        values["local_patch_resolution"] = _int_value(
+            values["local_patch_resolution"], f"{section_name}.local_patch_resolution"
+        )
+    if "max_num_local_patch_colliders" in values:
+        values["max_num_local_patch_colliders"] = _int_value(
+            values["max_num_local_patch_colliders"],
+            f"{section_name}.max_num_local_patch_colliders",
+        )
     if "pad_resolution" in values:
         values["pad_resolution"] = _int_value(values["pad_resolution"], f"{section_name}.pad_resolution")
     if "convex_patch_resolution" in values:
@@ -122,6 +140,9 @@ def _parse_section(data: Any, cls: type[ConfigT], section_name: str) -> ConfigT:
             values["max_num_mesh_colliders"], f"{section_name}.max_num_mesh_colliders"
         )
     for field_name in (
+        "local_patch_thickness",
+        "local_patch_margin_ratio",
+        "local_patch_min_height",
         "convex_patch_base_thickness",
         "convex_patch_min_height",
         "convex_patch_margin_ratio",
@@ -130,6 +151,10 @@ def _parse_section(data: Any, cls: type[ConfigT], section_name: str) -> ConfigT:
     ):
         if field_name in values:
             values[field_name] = _float_value(values[field_name], f"{section_name}.{field_name}")
+    if "local_patch_max_height" in values and values["local_patch_max_height"] is not None:
+        values["local_patch_max_height"] = _float_value(
+            values["local_patch_max_height"], f"{section_name}.local_patch_max_height"
+        )
     if "convex_patch_max_height" in values and values["convex_patch_max_height"] is not None:
         values["convex_patch_max_height"] = _float_value(
             values["convex_patch_max_height"], f"{section_name}.convex_patch_max_height"
@@ -192,6 +217,59 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
         if config.fingertip_pad_thickness <= 0:
             raise ValueError(
                 f"{section_name}.fingertip_pad_thickness={config.fingertip_pad_thickness!r} must be > 0"
+            )
+        if config.local_patch_resolution < 2:
+            raise ValueError(
+                f"{section_name}.local_patch_resolution="
+                f"{config.local_patch_resolution!r} must be >= 2"
+            )
+        _validate_choice(
+            f"{section_name}.local_patch_collider_type",
+            config.local_patch_collider_type,
+            {"quad_frustum", "triangular_prism"},
+        )
+        if config.local_patch_thickness <= 0:
+            raise ValueError(
+                f"{section_name}.local_patch_thickness="
+                f"{config.local_patch_thickness!r} must be > 0"
+            )
+        if not 0 <= config.local_patch_margin_ratio < 0.5:
+            raise ValueError(
+                f"{section_name}.local_patch_margin_ratio="
+                f"{config.local_patch_margin_ratio!r} must be >= 0 and < 0.5"
+            )
+        if config.local_patch_min_height < 0:
+            raise ValueError(
+                f"{section_name}.local_patch_min_height="
+                f"{config.local_patch_min_height!r} must be >= 0"
+            )
+        if config.local_patch_max_height is not None and config.local_patch_max_height <= 0:
+            raise ValueError(
+                f"{section_name}.local_patch_max_height="
+                f"{config.local_patch_max_height!r} must be > 0"
+            )
+        if config.max_num_local_patch_colliders <= 0:
+            raise ValueError(
+                f"{section_name}.max_num_local_patch_colliders="
+                f"{config.max_num_local_patch_colliders!r} must be > 0"
+            )
+        colliders_per_tip = config.local_patch_resolution**2
+        if config.local_patch_collider_type == "triangular_prism":
+            colliders_per_tip *= 2
+        if (
+            config.mode == "local_convex_patches"
+            and colliders_per_tip > config.max_num_local_patch_colliders
+        ):
+            raise ValueError(
+                "finger local_convex_patches collider count per fingertip must not exceed "
+                "max_num_local_patch_colliders; "
+                f"got colliders_per_tip={colliders_per_tip!r}, "
+                f"max_num_local_patch_colliders={config.max_num_local_patch_colliders!r}"
+            )
+        if not isinstance(config.local_patch_export, bool):
+            raise ValueError(
+                f"{section_name}.local_patch_export="
+                f"{config.local_patch_export!r} must be a boolean"
             )
     elif isinstance(config, PalmContactConfig):
         _validate_choice(
