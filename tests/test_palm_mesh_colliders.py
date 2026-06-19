@@ -12,7 +12,7 @@ import pytest
 
 trimesh = pytest.importorskip("trimesh")
 
-from handcdo.design_space import DesignSpace, HandDesign
+from handcdo.design_space import DEFAULT_PALM_OUTLINE_PARAMETERS, DesignSpace, HandDesign
 from handcdo.geometry_config import GeometryConfig, PalmContactConfig
 from handcdo.hand_model import build_hand_model
 from handcdo.mjcf_generator import build_mjcf_xml
@@ -43,6 +43,7 @@ def _assert_closed_triangle_mesh(vertices, faces) -> None:
 def _hand_with_height(height: float):
     design = DesignSpace().sample(seed=81)
     params = design.to_dict()
+    params.update(DEFAULT_PALM_OUTLINE_PARAMETERS)
     params["palm_kernel_max_height"] = height
     return build_hand_model(HandDesign(params))
 
