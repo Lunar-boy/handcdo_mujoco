@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math
 
 from .design_space import HandDesign
+from .palm_outline import PalmBodySpec, build_palm_outline_body
 
 
 @dataclass(frozen=True)
@@ -49,9 +50,13 @@ class PalmPad:
 @dataclass(frozen=True)
 class HandModel:
     design: HandDesign
-    palm_size: tuple[float, float, float]
+    palm_body: PalmBodySpec
     digits: tuple[DigitSpec, ...]
     palm_pads: tuple[PalmPad, ...]
+
+    @property
+    def palm_size(self) -> tuple[float, float, float]:
+        return self.palm_body.half_extents
 
     @property
     def joint_names(self) -> list[str]:
@@ -60,23 +65,35 @@ class HandModel:
 
 def build_hand_model(design: HandDesign) -> HandModel:
     p = design.params
-    palm_size = (
-        0.085 + 0.5 * p["palm_kernel_max_height"],
-        0.115,
-        0.032 + p["palm_kernel_max_height"],
+    n_fingers = int(p["finger_number"])
+    palm_body = build_palm_outline_body(
+        n_fingers=n_fingers,
+        finger_side_offsets=tuple(
+            p[f"finger_side_offset_{index}"] for index in range(1, n_fingers + 1)
+        ),
+        finger_normal_offsets=tuple(
+            p[f"finger_normal_offset_{index}"] for index in range(1, n_fingers + 1)
+        ),
+        finger_angles=tuple(
+            p[f"finger_angle_{index}"] for index in range(1, n_fingers + 1)
+        ),
+        thumb_side_offset=p["thumb_side_offset"],
+        thumb_normal_offset=p["thumb_normal_offset"],
+        thumb_angle=p["thumb_angle"],
+        half_x=0.085,
+        half_y=0.115,
+        half_z=0.032,
+        polygon_sides=8,
+        aspect_ratio=1.0,
     )
+    palm_size = palm_body.half_extents
     base_lengths = [0.044, 0.034, 0.027, 0.022]
     lengths = [
         max(0.018, base_lengths[i] + p[f"added_link_length_{i + 1}"])
         for i in range(4)
     ]
     fingers: list[DigitSpec] = []
-    n_fingers = int(p["finger_number"])
-    y_slots = [-0.035, 0.035] if n_fingers == 2 else [-0.045, 0.0, 0.045]
-    for idx, y in enumerate(y_slots, start=1):
-        side = p[f"finger_side_offset_{idx}"]
-        normal = p[f"finger_normal_offset_{idx}"]
-        yaw = p[f"finger_angle_{idx}"]
+    for idx in range(1, n_fingers + 1):
         link_count = 3 if p["finger_code"] == "1-1-1" else 4
         links = []
         for j in range(link_count):
@@ -109,8 +126,8 @@ def build_hand_model(design: HandDesign) -> HandModel:
         fingers.append(
             DigitSpec(
                 name=f"finger{idx}",
-                base_pos=(0.038 + normal, y + side, 0.02),
-                base_yaw=yaw,
+                base_pos=palm_body.base_frames[f"finger{idx}"].pos,
+                base_yaw=palm_body.base_frames[f"finger{idx}"].yaw,
                 links=tuple(links),
             )
         )
@@ -143,8 +160,8 @@ def build_hand_model(design: HandDesign) -> HandModel:
     fingers.append(
         DigitSpec(
             name="thumb",
-            base_pos=(-0.022 + p["thumb_normal_offset"], -0.068 + p["thumb_side_offset"], 0.012),
-            base_yaw=-1.15 + p["thumb_angle"],
+            base_pos=palm_body.base_frames["thumb"].pos,
+            base_yaw=palm_body.base_frames["thumb"].yaw,
             links=tuple(thumb_links),
         )
     )
@@ -163,4 +180,9 @@ def build_hand_model(design: HandDesign) -> HandModel:
                 size=(spread * 0.45, spread * 0.32, 0.004 + 0.012 * intensity * p["palm_kernel_max_height"]),
             )
         )
-    return HandModel(design=design, palm_size=palm_size, digits=tuple(fingers), palm_pads=tuple(pads))
+    return HandModel(
+        design=design,
+        palm_body=palm_body,
+        digits=tuple(fingers),
+        palm_pads=tuple(pads),
+    )
