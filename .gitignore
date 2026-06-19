@@ -29,3 +29,5 @@ outputs/*
 .codex/auth.json
 .codex/secrets.*
 .codex/*.local.*
+
+AGENTS.md
