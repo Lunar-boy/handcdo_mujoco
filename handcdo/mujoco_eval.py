@@ -14,7 +14,13 @@ from .grasp_sampling import GraspParams
 from .hand_model import build_hand_model
 from .mjcf_generator import build_mjcf_xml
 from .tools import ToolSpec, get_tool
-from .wrench_score import WRENCH_DIRECTIONS, WrenchDirectionResult, aggregate_wrench_results, rotation_error_from_mats
+from .wrench_score import (
+    WRENCH_DIRECTIONS,
+    WrenchDirectionResult,
+    aggregate_wrench_results,
+    normalized_stable_time,
+    rotation_error_from_mats,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,8 +30,11 @@ class EvaluationConfig:
     settle_steps: int = 250
     close_steps: int = 350
     wrench_steps: int = 250
+    timestep: float = 0.002
     translation_threshold: float = 0.045
     rotation_threshold_rad: float = 0.55
+    force_magnitude: float | None = None
+    torque_magnitude: float | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "EvaluationConfig":
@@ -36,8 +45,11 @@ class EvaluationConfig:
             settle_steps=int(sim.get("settle_steps", 250)),
             close_steps=int(sim.get("close_steps", 350)),
             wrench_steps=int(sim.get("wrench_steps", 250)),
+            timestep=float(sim.get("timestep", 0.002)),
             translation_threshold=float(wrench.get("translation_threshold", sim.get("translation_threshold", 0.045))),
             rotation_threshold_rad=float(wrench.get("rotation_threshold_rad", sim.get("rotation_threshold_rad", 0.55))),
+            force_magnitude=_optional_float(wrench.get("force_magnitude")),
+            torque_magnitude=_optional_float(wrench.get("torque_magnitude")),
         )
 
 
@@ -104,6 +116,8 @@ def _run_wrench_tests(model: Any, data: Any, tool: ToolSpec, config: EvaluationC
     qvel0 = data.qvel.copy()
     ctrl0 = data.ctrl.copy()
     results: list[WrenchDirectionResult] = []
+    force_magnitude = tool.force_limit if config.force_magnitude is None else config.force_magnitude
+    torque_magnitude = tool.torque_limit if config.torque_magnitude is None else config.torque_magnitude
     for name, force_dir, torque_dir in WRENCH_DIRECTIONS:
         data.qpos[:] = qpos0
         data.qvel[:] = qvel0
@@ -118,8 +132,8 @@ def _run_wrench_tests(model: Any, data: Any, tool: ToolSpec, config: EvaluationC
         failed = False
         for step in range(config.wrench_steps):
             scale = (step + 1) / config.wrench_steps
-            data.xfrc_applied[tool_body, :3] = force_dir * tool.force_limit * scale
-            data.xfrc_applied[tool_body, 3:] = torque_dir * tool.torque_limit * scale
+            data.xfrc_applied[tool_body, :3] = force_dir * force_magnitude * scale
+            data.xfrc_applied[tool_body, 3:] = torque_dir * torque_magnitude * scale
             mujoco.mj_step(model, data)
             trans = float(np.linalg.norm(data.xpos[tool_body] - start_pos))
             rot = rotation_error_from_mats(start_mat, data.xmat[tool_body])
@@ -134,7 +148,7 @@ def _run_wrench_tests(model: Any, data: Any, tool: ToolSpec, config: EvaluationC
                 direction=name,
                 stable_steps=int(stable_steps),
                 total_steps=int(config.wrench_steps),
-                normalized_duration=float(stable_steps / max(config.wrench_steps, 1)),
+                normalized_duration=normalized_stable_time(stable_steps, config.wrench_steps),
                 max_translation=max_trans,
                 max_rotation_rad=max_rot,
                 failed=failed,
@@ -165,6 +179,7 @@ def evaluate_grasp(
             tool_assets_dir=Path(tool_assets_dir),
         )
         model = _load_model(xml)
+        model.opt.timestep = config.timestep
         data = mujoco.MjData(model)
         _set_tool_pose(model, data, tool, grasp)
         mujoco.mj_forward(model, data)
@@ -190,3 +205,7 @@ def evaluate_grasp(
             failed=True,
             error=f"{type(exc).__name__}: {exc}",
         )
+
+
+def _optional_float(value: Any) -> float | None:
+    return None if value is None else float(value)

@@ -1,0 +1,34 @@
+geometry_config: configs/eval_paper_like.yaml
+
+evaluation:
+  tools:
+    - hammer
+    - spoon
+    - knife
+
+  wrench:
+    force_magnitude: 1.0
+    torque_magnitude: 0.05
+    directions: canonical_12
+
+  rollout:
+    settle_time: 0.5
+    perturb_time: 1.0
+    timestep: 0.002
+    close_steps: 450
+    max_steps: 750
+
+  stability:
+    displacement_threshold: 0.05
+    rotation_threshold_rad: 0.8
+    score: normalized_stable_time
+
+  grasp:
+    candidates_per_tool: 8
+    keep_best_per_tool: true
+    sampler: random
+    seed: 0
+
+  aggregation:
+    per_tool: best_grasp_mean_wrench_score
+    across_tools: mean
