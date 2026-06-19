@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+import math
+from pathlib import Path
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -15,7 +20,24 @@ from handcdo.palm_mesh_colliders import (
     build_palm_tiled_mesh_colliders,
     export_palm_tiled_mesh_colliders,
 )
+from handcdo.palm_mesh_deformation import build_outline_palm_surface_cells
 from handcdo.tools import get_tool
+
+
+def _assert_closed_triangle_mesh(vertices, faces) -> None:
+    assert len(vertices) > 0
+    assert len(faces) > 0
+    assert all(math.isfinite(float(value)) for vertex in vertices for value in vertex)
+    assert all(0 <= int(index) < len(vertices) for face in faces for index in face)
+    assert all(len(set(int(index) for index in face)) == 3 for face in faces)
+
+    edge_counts: dict[tuple[int, int], int] = {}
+    for face in faces:
+        indices = tuple(int(index) for index in face)
+        for start, end in zip(indices, indices[1:] + indices[:1], strict=True):
+            edge = tuple(sorted((start, end)))
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+    assert set(edge_counts.values()) == {2}
 
 
 def _hand_with_height(height: float):
@@ -60,6 +82,47 @@ def test_resolution_four_produces_expected_closed_colliders(
     assert all(len(collider.mesh.vertices) > 0 for collider in colliders)
     assert all(len(collider.mesh.faces) > 0 for collider in colliders)
     assert all(collider.mesh.is_watertight for collider in colliders)
+
+
+def test_outline_quad_colliders_are_watertight_and_count_is_bounded():
+    resolution = 4
+    colliders = build_palm_tiled_mesh_colliders(
+        _hand_with_height(0.02),
+        _config(
+            resolution=resolution,
+            mesh_collider_domain="outline",
+            max_num_mesh_colliders=resolution**2,
+        ),
+    )
+
+    assert colliders
+    assert len(colliders) <= resolution**2
+    assert any(len(collider.mesh.vertices) != 8 for collider in colliders)
+    for collider in colliders:
+        _assert_closed_triangle_mesh(collider.mesh.vertices, collider.mesh.faces)
+
+
+def test_outline_triangular_prism_uses_actual_count_limit():
+    hand = _hand_with_height(0.02)
+    config = _config(
+        "triangular_prism",
+        resolution=4,
+        mesh_collider_domain="outline",
+        max_num_mesh_colliders=64,
+    )
+    colliders = build_palm_tiled_mesh_colliders(hand, config)
+
+    assert len(colliders) > 2 * config.mesh_collider_resolution**2
+    with pytest.raises(ValueError, match="collider_count|max_num_mesh_colliders"):
+        build_palm_tiled_mesh_colliders(
+            hand,
+            _config(
+                "triangular_prism",
+                resolution=4,
+                mesh_collider_domain="outline",
+                max_num_mesh_colliders=len(colliders) - 1,
+            ),
+        )
 
 
 def test_collider_names_follow_deterministic_grid_order():
@@ -122,6 +185,53 @@ def test_exported_colliders_can_be_reloaded(tmp_path, file_format):
         assert isinstance(loaded, trimesh.Trimesh)
         assert len(loaded.vertices) > 0
         assert len(loaded.faces) > 0
+
+
+def test_outline_export_metadata_uses_generated_cell_heights(tmp_path):
+    design = DesignSpace().sample(seed=82)
+    design_path = tmp_path / "design.json"
+    output_dir = tmp_path / "colliders"
+    design.to_json(design_path)
+    subprocess.run(
+        [
+            sys.executable,
+            str(
+                Path(__file__).resolve().parents[1]
+                / "scripts"
+                / "export_palm_mesh_colliders.py"
+            ),
+            "--design-json",
+            str(design_path),
+            "--output-dir",
+            str(output_dir),
+            "--resolution",
+            "4",
+            "--collider-type",
+            "quad_frustum",
+            "--domain",
+            "outline",
+        ],
+        check=True,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+
+    metadata = json.loads(
+        (output_dir / "palm_mesh_collider_metadata.json").read_text(encoding="utf-8")
+    )
+    config = _config(
+        resolution=4,
+        mesh_collider_domain="outline",
+        max_num_mesh_colliders=16,
+    )
+    cells = build_outline_palm_surface_cells(build_hand_model(design), config)
+    generated_heights = [height for cell in cells for height in cell.heights]
+
+    assert metadata["mesh_collider_domain"] == "outline"
+    assert metadata["mesh_collider_type"] == "quad_frustum"
+    assert metadata["mesh_collider_resolution"] == 4
+    assert metadata["num_colliders"] == len(cells)
+    assert metadata["height_min"] == pytest.approx(min(generated_heights))
+    assert metadata["height_max"] == pytest.approx(max(generated_heights))
 
 
 @pytest.mark.parametrize(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import numpy as np
 import pytest
@@ -8,13 +9,16 @@ import pytest
 trimesh = pytest.importorskip("trimesh")
 
 from handcdo.design_space import DesignSpace, HandDesign
+from handcdo.geometry_config import PalmContactConfig
 from handcdo.hand_model import build_hand_model
 from handcdo.palm_mesh_deformation import (
     PalmSurfaceMeshConfig,
+    build_outline_palm_surface_cells,
     build_palm_surface_mesh,
     compute_palm_height_field,
     export_palm_surface_mesh,
 )
+from handcdo.polygon_geometry import is_point_in_convex_polygon, polygon_area
 
 
 def _hand_with_height(height: float):
@@ -22,6 +26,39 @@ def _hand_with_height(height: float):
     params = design.to_dict()
     params["palm_kernel_max_height"] = height
     return build_hand_model(HandDesign(params))
+
+
+def test_outline_domain_clips_cells_to_palm_outline():
+    hand = _hand_with_height(0.02)
+    config = PalmContactConfig(
+        mode="tiled_mesh_colliders",
+        mesh_collider_domain="outline",
+        mesh_collider_resolution=4,
+        max_num_mesh_colliders=64,
+    )
+
+    cells = build_outline_palm_surface_cells(hand, config)
+    repeated = build_outline_palm_surface_cells(hand, config)
+
+    assert cells
+    assert cells == repeated
+    for cell in cells:
+        assert len(cell.vertices_2d) >= 3
+        assert len(set(cell.vertices_2d)) >= 3
+        assert all(
+            math.isfinite(coordinate)
+            for vertex in cell.vertices_2d
+            for coordinate in vertex
+        )
+        assert polygon_area(cell.vertices_2d) > 1e-12
+        assert all(
+            is_point_in_convex_polygon(
+                vertex,
+                hand.palm_body.outline_vertices_2d,
+                eps=1e-9,
+            )
+            for vertex in cell.vertices_2d
+        )
 
 
 def test_zero_design_height_produces_flat_height_field_and_top_surface():

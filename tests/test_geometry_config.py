@@ -151,6 +151,41 @@ def test_geometry_config_minimal_palm_tiled_mesh_colliders_uses_valid_defaults()
     )
 
 
+def test_outline_triangular_prism_config_defers_count_limit_to_generation():
+    config = GeometryConfig.from_dict(
+        {
+            "geometry": {
+                "palm": {
+                    "mode": "tiled_mesh_colliders",
+                    "mesh_collider_domain": "outline",
+                    "mesh_collider_type": "triangular_prism",
+                    "mesh_collider_resolution": 4,
+                    "max_num_mesh_colliders": 1,
+                }
+            }
+        }
+    )
+
+    assert config.palm.max_num_mesh_colliders == 1
+
+
+def test_bbox_triangular_prism_config_keeps_precomputed_count_limit():
+    with pytest.raises(ValueError, match="mesh_collider_resolution"):
+        GeometryConfig.from_dict(
+            {
+                "geometry": {
+                    "palm": {
+                        "mode": "tiled_mesh_colliders",
+                        "mesh_collider_domain": "bbox",
+                        "mesh_collider_type": "triangular_prism",
+                        "mesh_collider_resolution": 4,
+                        "max_num_mesh_colliders": 31,
+                    }
+                }
+            }
+        )
+
+
 def test_geometry_config_invalid_mode_raises_value_error():
     with pytest.raises(ValueError, match="geometry.finger.mode='spheres'"):
         GeometryConfig.from_dict({"geometry": {"finger": {"mode": "spheres"}}})

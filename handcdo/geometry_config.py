@@ -346,7 +346,11 @@ def _validate_config(config: FingerContactConfig | PalmContactConfig | ToolConta
         collider_count = config.mesh_collider_resolution**2
         if config.mesh_collider_type == "triangular_prism":
             collider_count *= 2
-        if config.mode == "tiled_mesh_colliders" and collider_count > config.max_num_mesh_colliders:
+        if (
+            config.mode == "tiled_mesh_colliders"
+            and config.mesh_collider_domain == "bbox"
+            and collider_count > config.max_num_mesh_colliders
+        ):
             multiplier = "2 * " if config.mesh_collider_type == "triangular_prism" else ""
             raise ValueError(
                 "palm tiled_mesh_colliders requires "
