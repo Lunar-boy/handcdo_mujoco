@@ -85,6 +85,23 @@ python3 scripts/run_optuna_round.py \
 The outer objective maximizes the average best grasp stability score across hammer, spoon, and knife. The inner grasp optimizer uses Optuna TPE when available and falls back to random search if necessary.
 `mujoco` remains accepted as a legacy alias for the same CPU MuJoCo backend.
 
+## Paper-like evaluation protocol
+
+An explicit reproduction protocol defines the canonical 12 Cartesian force/torque directions, normalized stable-time scoring, best-grasp aggregation per tool, and mean aggregation across hammer, spoon, and knife.
+
+Run the cheap deterministic protocol smoke test:
+
+```bash
+python3 scripts/run_paper_eval_smoke.py \
+  --config configs/eval_paper_protocol.yaml \
+  --num-designs 2 \
+  --output outputs/paper_eval_smoke
+```
+
+Add `--backend mujoco_cpu` to run the same protocol through CPU MuJoCo. Outputs include nested `results.json`, per-wrench `results.csv`, and `run_config.json`. The default geometry is `configs/eval_paper_like.yaml`.
+
+This protocol approximates the paper's stability objective in MuJoCo. Exact scores may differ because the simulator backend, tool meshes, contact parameters, and grasp optimizer are not identical. See [docs/reproduction.md](docs/reproduction.md) for the schema, larger-run guidance, and reproduction boundary.
+
 ## Palm outline design parameters
 
 The morphology search includes bounded rigid palm outline parameters:
@@ -423,7 +440,7 @@ python3 scripts/merge_multifidelity_results.py \
 pytest
 ```
 
-Tests cover design-space bounds, deterministic JSON round trips, MJCF loadability when MuJoCo is installed, wrench-score bounds, and robust result collection from partial or failed batch outputs.
+Tests cover design-space bounds, deterministic JSON round trips, MJCF loadability when MuJoCo is installed, canonical wrench directions, normalized stable-time and aggregation bounds, deterministic protocol smoke evaluation, and robust result collection from partial or failed batch outputs.
 
 ## Project Layout
 

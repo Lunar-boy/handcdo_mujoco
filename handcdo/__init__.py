@@ -6,6 +6,7 @@ __all__ = [
     "mjcf_generator",
     "tools",
     "mujoco_eval",
+    "paper_eval_protocol",
     "wrench_score",
 ]
 
