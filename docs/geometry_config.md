@@ -2,6 +2,14 @@
 
 This repository now has a typed `GeometryConfig` schema for finger, palm, and tool contact geometry settings.
 
+## Geometry fidelity tiers
+
+- **Fast** uses simple capsule fingers, box palm pads, and primitive tools for broad screening.
+- **Stable high** uses `configs/eval_high.yaml` with fingertip pads, a denser palm pad grid, and optional hybrid tool geometry. This config remains unchanged for compatibility with existing high-fidelity results.
+- **Paper-like** uses `configs/eval_paper_like.yaml` with ellipsoid fingertip bodies, local fingertip convex patch colliders, outline-aware palm tiled mesh colliders, and hybrid tool geometry. Hybrid tools safely fall back to primitives when mesh assets are unavailable.
+
+The paper-like tier is a CPU-only MuJoCo approximation of the paper's geometry model. It does not reproduce the original simulator, fabrication workflow, or physical system. Because it changes contact geometry, paper-like scores are not directly comparable with stable-high, `pad_grid`, or `capsule_tip_pad` evaluations. Compare tiers by re-evaluating the same design IDs, tools, seeds, and simulation budgets.
+
 The default `finger.mode: capsule` geometry emits one capsule per link and preserves the original generated MJCF.
 
 The opt-in `finger.fingertip_body_shape: ellipsoid` setting replaces each terminal fingertip capsule with a proximal capsule shaft and a distal ellipsoid. The ellipsoid's local Y and Z half-sizes independently use the design's `fingertip_scale_y` and `fingertip_scale_z` parameters. The default value is `capsule`, so existing configurations and generated MJCF remain unchanged. This is a primitive contact-geometry approximation of the paper's anisotropic fingertip dimensions and is not a claim of numerical equivalence.
