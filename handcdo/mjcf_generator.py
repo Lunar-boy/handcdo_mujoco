@@ -390,7 +390,26 @@ def _add_palm_geoms(
     asset_parent: ET.Element | None = None,
 ) -> None:
     palm_config = palm_config or PalmContactConfig()
-    ET.SubElement(parent, "geom", name="palm_geom", type="box", size=_vec(hand.palm_size), density="700", friction="1.2 0.02 0.002")
+    if asset_parent is None:
+        raise ValueError("outline palm body requires a root-level MJCF asset element")
+    ET.SubElement(
+        asset_parent,
+        "mesh",
+        name="palm_body_mesh",
+        vertex=_vec([value for vertex in hand.palm_body.vertices for value in vertex]),
+        face=_vec([value for face in hand.palm_body.faces for value in face]),
+    )
+    ET.SubElement(
+        parent,
+        "geom",
+        name="palm_geom",
+        type="mesh",
+        mesh="palm_body_mesh",
+        density="700",
+        friction="1.2 0.02 0.002",
+        contype="1",
+        conaffinity="1",
+    )
     if palm_config.mode == "box_pads":
         _add_palm_box_pads(parent, hand, palm_config)
     elif palm_config.mode == "pad_grid":
@@ -532,16 +551,7 @@ def build_mjcf_xml(
     default = ET.SubElement(root, "default")
     ET.SubElement(default, "joint", limited="true")
     ET.SubElement(default, "geom", solref="0.012 1", solimp="0.9 0.95 0.001", margin="0.001")
-    asset = None
-    needs_tool_assets = tool_geometry_asset is not None and (
-        tool_geometry_asset.visual_mesh is not None or tool_geometry_asset.collision_meshes
-    )
-    if (
-        geometry_config.palm.mode == "tiled_mesh_colliders"
-        or geometry_config.finger.mode == "local_convex_patches"
-        or needs_tool_assets
-    ):
-        asset = ET.SubElement(root, "asset")
+    asset = ET.SubElement(root, "asset")
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", name="top", pos="0 0 1.0")
     ET.SubElement(world, "geom", name="floor", type="plane", size="0.6 0.6 0.02", pos="0 0 -0.04", friction="1 0.01 0.001")

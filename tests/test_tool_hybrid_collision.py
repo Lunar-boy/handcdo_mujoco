@@ -30,6 +30,16 @@ def _geom(root: ET.Element, name: str) -> ET.Element:
     return geom
 
 
+def _tool_mesh_assets(root: ET.Element) -> list[ET.Element]:
+    asset = root.find("asset")
+    assert asset is not None
+    return [
+        mesh
+        for mesh in asset.findall("mesh")
+        if mesh.attrib.get("name", "").startswith(("hammer_", "spoon_", "knife_"))
+    ]
+
+
 def _write_tiny_mesh_obj(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -60,7 +70,7 @@ def test_default_primitive_tool_geometry_is_preserved_exactly():
     assert configured_xml == default_xml
     assert "hammer_handle" in default_xml
     assert "hammer_head" in default_xml
-    assert "<asset>" not in default_xml
+    assert 'name="palm_body_mesh"' in default_xml
 
 
 @pytest.mark.parametrize(
@@ -87,7 +97,7 @@ def test_primitive_mode_uses_tool_config_friction_override():
     assert _geom(root, "hammer_head").attrib["friction"] == _vec(friction)
 
 
-def test_hybrid_missing_assets_falls_back_without_asset_element(tmp_path, caplog):
+def test_hybrid_missing_assets_falls_back_without_tool_mesh_asset(tmp_path, caplog):
     xml = build_mjcf_xml(
         _hand(),
         tool=get_tool("hammer"),
@@ -98,7 +108,7 @@ def test_hybrid_missing_assets_falls_back_without_asset_element(tmp_path, caplog
     assert "hammer_handle" in xml
     assert "hammer_head" in xml
     assert '<geom type="mesh"' not in xml
-    assert "<asset>" not in xml
+    assert _tool_mesh_assets(ET.fromstring(xml)) == []
     assert "using primitive fallback" in caplog.text
 
 
@@ -130,7 +140,7 @@ def test_hybrid_visual_only_adds_noncolliding_visual_and_primitive_collision(tmp
     )
     asset = root.find("asset")
     assert asset is not None
-    mesh = asset.find("mesh")
+    mesh = asset.find("mesh[@name='hammer_visual_mesh']")
     assert mesh is not None
     visual_geom = _geom(root, "hammer_visual")
 
@@ -163,7 +173,7 @@ def test_hybrid_collision_meshes_are_root_assets_with_deterministic_mass_and_fri
     )
     asset = root.find("asset")
     assert asset is not None
-    meshes = asset.findall("mesh")
+    meshes = _tool_mesh_assets(root)
 
     assert root.find("worldbody") is not None
     assert list(root).index(asset) < list(root).index(root.find("worldbody"))
@@ -300,7 +310,7 @@ def test_geometry_high_config_generates_with_missing_asset_fallback(tmp_path):
     assert config.tool.mode == "hybrid"
     assert "hammer_handle" in xml
     assert "hammer_head" in xml
-    assert "<asset>" not in xml
+    assert _tool_mesh_assets(ET.fromstring(xml)) == []
 
 
 def test_evaluate_grasp_accepts_custom_tool_assets_dir_for_hybrid_mesh(tmp_path):
