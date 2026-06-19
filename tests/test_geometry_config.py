@@ -250,16 +250,11 @@ def test_default_xml_still_loads_with_mujoco_when_available():
     assert model.nu > 0
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"geometry": {"finger": {"mode": "local_convex_patches"}}},
-        {"geometry": {"tool": {"mode": "convex_mesh"}}},
-    ],
-)
-def test_valid_future_geometry_modes_raise_not_implemented_during_mjcf_generation(payload):
+def test_valid_future_tool_mode_raises_not_implemented_during_mjcf_generation():
     design = DesignSpace().sample(seed=6)
-    config = GeometryConfig.from_dict(payload)
+    config = GeometryConfig.from_dict(
+        {"geometry": {"tool": {"mode": "convex_mesh"}}}
+    )
 
     with pytest.raises(NotImplementedError):
         build_mjcf_xml(build_hand_model(design), tool=get_tool("hammer"), geometry_config=config)

@@ -6,6 +6,11 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from .design_space import HandDesign
+from .finger_mesh_colliders import (
+    build_fingertip_local_mesh_colliders,
+    export_fingertip_local_mesh_colliders,
+)
+from .finger_mesh_deformation import fingertip_contact_half_extents
 from .geometry_config import FingerContactConfig, GeometryConfig, PalmContactConfig, ToolContactConfig
 from .hand_model import DigitSpec, HandModel, LinkSpec, build_hand_model
 from .palm_mesh_colliders import build_palm_tiled_mesh_colliders, export_palm_tiled_mesh_colliders
@@ -34,7 +39,11 @@ def _indent(elem: ET.Element, level: int = 0) -> None:
 
 
 def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
-    if geometry_config.finger.mode not in {"capsule", "capsule_tip_pad"}:
+    if geometry_config.finger.mode not in {
+        "capsule",
+        "capsule_tip_pad",
+        "local_convex_patches",
+    }:
         raise NotImplementedError(f"finger contact mode {geometry_config.finger.mode!r} is not implemented yet")
     if geometry_config.finger.fingertip_body_shape not in {"capsule", "ellipsoid"}:
         raise ValueError(
@@ -59,17 +68,7 @@ def _fingertip_contact_half_extents(
     link: LinkSpec,
     finger_config: FingerContactConfig,
 ) -> tuple[float, float, float]:
-    if (
-        finger_config.fingertip_body_shape == "ellipsoid"
-        and link.fingertip_geometry is not None
-    ):
-        geometry = link.fingertip_geometry
-        return (geometry.half_x, geometry.half_y, geometry.half_z)
-    return (
-        min(0.008, max(0.003, 0.28 * link.length)),
-        link.radius,
-        link.radius,
-    )
+    return fingertip_contact_half_extents(link, finger_config)
 
 
 def _add_fingertip_pad_geom(parent: ET.Element, link: LinkSpec, finger_config: FingerContactConfig) -> None:
@@ -109,7 +108,50 @@ def _add_fingertip_pad_geom(parent: ET.Element, link: LinkSpec, finger_config: F
     )
 
 
-def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContactConfig | None = None) -> None:
+def _add_fingertip_local_patch_geoms(
+    parent: ET.Element,
+    asset_parent: ET.Element,
+    digit: DigitSpec,
+    link: LinkSpec,
+    finger_config: FingerContactConfig,
+) -> None:
+    colliders = build_fingertip_local_mesh_colliders(digit, link, finger_config)
+    for collider in colliders:
+        ET.SubElement(
+            asset_parent,
+            "mesh",
+            name=collider.name,
+            vertex=_vec(collider.mesh.vertices.ravel().tolist()),
+            face=_vec(collider.mesh.faces.ravel().tolist()),
+        )
+        ET.SubElement(
+            parent,
+            "geom",
+            name=collider.name,
+            type="mesh",
+            mesh=collider.name,
+            density="400",
+            friction=_vec(finger_config.fingertip_pad_friction),
+            contype="1",
+            conaffinity="1",
+        )
+    if finger_config.local_patch_export:
+        if not finger_config.local_patch_export_dir:
+            raise ValueError(
+                "local_patch_export_dir must be set when local_patch_export is true"
+            )
+        export_fingertip_local_mesh_colliders(
+            colliders,
+            Path(finger_config.local_patch_export_dir) / digit.name,
+        )
+
+
+def _add_digit(
+    parent: ET.Element,
+    digit: DigitSpec,
+    finger_config: FingerContactConfig | None = None,
+    asset_parent: ET.Element | None = None,
+) -> None:
     finger_config = finger_config or FingerContactConfig()
     base = ET.SubElement(
         parent,
@@ -176,7 +218,19 @@ def _add_digit(parent: ET.Element, digit: DigitSpec, finger_config: FingerContac
                 contype="1",
                 conaffinity="1",
             )
-        if link.fingertip and finger_config.fingertip_pad_enabled:
+        if link.fingertip and finger_config.mode == "local_convex_patches":
+            if asset_parent is None:
+                raise ValueError(
+                    "local fingertip mesh colliders require a root-level MJCF asset element"
+                )
+            _add_fingertip_local_patch_geoms(
+                current,
+                asset_parent,
+                digit,
+                link,
+                finger_config,
+            )
+        elif link.fingertip and finger_config.fingertip_pad_enabled:
             _add_fingertip_pad_geom(current, link, finger_config)
         current = ET.SubElement(current, "body", name=f"{link.name}_tip", pos=_vec((link.length, 0.0, 0.0)))
 
@@ -452,6 +506,22 @@ def build_mjcf_xml(
 ) -> str:
     geometry_config = geometry_config or GeometryConfig()
     _ensure_supported_geometry_config(geometry_config)
+    if geometry_config.finger.mode == "local_convex_patches":
+        terminal_count = sum(
+            link.fingertip for digit in hand.digits for link in digit.links
+        )
+        collider_count = terminal_count * geometry_config.finger.local_patch_resolution**2
+        if geometry_config.finger.local_patch_collider_type == "triangular_prism":
+            collider_count *= 2
+        if collider_count > geometry_config.finger.max_num_local_patch_colliders:
+            raise ValueError(
+                "finger local_convex_patches total collider count must not exceed "
+                "max_num_local_patch_colliders; "
+                f"got terminal_fingertips={terminal_count!r}, "
+                f"collider_count={collider_count!r}, "
+                "max_num_local_patch_colliders="
+                f"{geometry_config.finger.max_num_local_patch_colliders!r}"
+            )
     tool_geometry_asset = None
     if tool is not None and geometry_config.tool.mode == "hybrid":
         tool_geometry_asset = resolve_tool_geometry(tool.name, tool_assets_dir)
@@ -466,7 +536,11 @@ def build_mjcf_xml(
     needs_tool_assets = tool_geometry_asset is not None and (
         tool_geometry_asset.visual_mesh is not None or tool_geometry_asset.collision_meshes
     )
-    if geometry_config.palm.mode == "tiled_mesh_colliders" or needs_tool_assets:
+    if (
+        geometry_config.palm.mode == "tiled_mesh_colliders"
+        or geometry_config.finger.mode == "local_convex_patches"
+        or needs_tool_assets
+    ):
         asset = ET.SubElement(root, "asset")
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", name="top", pos="0 0 1.0")
@@ -479,7 +553,12 @@ def build_mjcf_xml(
         asset_parent=asset,
     )
     for digit in hand.digits:
-        _add_digit(palm, digit, finger_config=geometry_config.finger)
+        _add_digit(
+            palm,
+            digit,
+            finger_config=geometry_config.finger,
+            asset_parent=asset,
+        )
     if tool is not None:
         _add_tool(
             world,
