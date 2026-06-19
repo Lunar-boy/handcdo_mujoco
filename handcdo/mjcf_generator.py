@@ -42,13 +42,6 @@ def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
             f"{geometry_config.finger.fingertip_body_shape!r} is not supported; "
             "expected 'capsule' or 'ellipsoid'"
         )
-    if (
-        geometry_config.finger.fingertip_body_shape == "ellipsoid"
-        and geometry_config.finger.fingertip_pad_enabled
-    ):
-        raise NotImplementedError(
-            "fingertip pads on ellipsoid fingertip bodies are not implemented yet"
-        )
     if geometry_config.palm.mode not in {
         "box_pads",
         "pad_grid",
@@ -62,17 +55,30 @@ def _ensure_supported_geometry_config(geometry_config: GeometryConfig) -> None:
         raise ValueError(f"Unknown tool contact mode {geometry_config.tool.mode!r}")
 
 
+def _fingertip_contact_half_extents(link: LinkSpec) -> tuple[float, float, float]:
+    if link.fingertip_geometry is not None:
+        geometry = link.fingertip_geometry
+        return (geometry.half_x, geometry.half_y, geometry.half_z)
+    return (
+        min(0.008, max(0.003, 0.28 * link.length)),
+        link.radius,
+        link.radius,
+    )
+
+
 def _add_fingertip_pad_geom(parent: ET.Element, link: LinkSpec, finger_config: FingerContactConfig) -> None:
     shape = finger_config.fingertip_pad_shape
     if shape == "box":
+        contact_half_x, contact_half_y, contact_half_z = _fingertip_contact_half_extents(link)
         thickness = finger_config.fingertip_pad_thickness
-        pad_half_x = min(0.008, max(0.003, 0.28 * link.length))
-        pad_half_y = max(0.003, 0.75 * link.radius)
+        pad_half_x = min(0.008, max(0.003, 0.55 * contact_half_x))
+        pad_half_y = max(0.003, 0.75 * contact_half_y)
         pad_half_z = 0.5 * thickness
+        embed_fraction = 0.5
         pos = (
-            max(0.0, link.length - pad_half_x),
+            max(0.0, link.length - contact_half_x),
             0.0,
-            -(link.radius + pad_half_z * 0.5),
+            -(contact_half_z + pad_half_z * (1.0 - embed_fraction)),
         )
         size = (pad_half_x, pad_half_y, pad_half_z)
     elif shape in {"ellipsoid", "capsule", "convex_mesh"}:

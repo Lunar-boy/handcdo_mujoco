@@ -112,7 +112,7 @@ def test_invalid_direct_fingertip_body_shape_is_rejected_during_mjcf_generation(
         build_mjcf_xml(hand, geometry_config=config)
 
 
-def test_ellipsoid_fingertip_body_rejects_fingertip_pad_enabled():
+def test_ellipsoid_fingertip_body_supports_box_pad():
     hand = build_hand_model(DesignSpace().sample(seed=9))
     config = GeometryConfig(
         finger=FingerContactConfig(
@@ -121,8 +121,7 @@ def test_ellipsoid_fingertip_body_rejects_fingertip_pad_enabled():
         )
     )
 
-    with pytest.raises(
-        NotImplementedError,
-        match=r"fingertip pads?.*ellipsoid|ellipsoid.*fingertip pads?",
-    ):
-        build_mjcf_xml(hand, geometry_config=config)
+    xml = build_mjcf_xml(hand, geometry_config=config)
+
+    assert "_tip_ellipsoid" in xml
+    assert "_tip_pad" in xml
